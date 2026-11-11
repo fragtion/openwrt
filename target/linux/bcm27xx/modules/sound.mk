@@ -26,7 +26,6 @@ define KernelPackage/sound-soc-bcm2835-i2s
   TITLE:=SoC Audio support for the Broadcom 2835 I2S module
   KCONFIG:= \
     CONFIG_SND_BCM2835_SOC_I2S \
-    CONFIG_SND_SOC_DMAENGINE_PCM=y \
     CONFIG_SND_SOC_GENERIC_DMAENGINE_PCM=y
   FILES:= \
     $(LINUX_DIR)/sound/soc/bcm/snd-soc-bcm2835-i2s.ko
@@ -45,7 +44,8 @@ $(eval $(call KernelPackage,sound-soc-bcm2835-i2s))
 define KernelPackage/sound-soc-rpi-simple-soundcard
   TITLE:=Support for Raspberry Pi simple soundcards
   KCONFIG:= \
-    CONFIG_SND_RPI_SIMPLE_SOUNDCARD
+    CONFIG_SND_RPI_SIMPLE_SOUNDCARD \
+    CONFIG_SND_BCM2708_SOC_HIFIBERRY_ADC8X
   FILES:= \
     $(LINUX_DIR)/sound/soc/bcm/snd-soc-rpi-simple-soundcard.ko
   AUTOLOAD:=$(call AutoLoad,68,snd-soc-rpi-simple-soundcard)
@@ -162,8 +162,7 @@ define KernelPackage/sound-soc-allo-digione
   FILES:= \
     $(LINUX_DIR)/sound/soc/codecs/snd-soc-wm8804.ko \
     $(LINUX_DIR)/sound/soc/codecs/snd-soc-wm8804-i2c.ko
-  AUTOLOAD:=$(call AutoLoad,68,snd-soc-wm8804-i2c snd-soc-wm8804 \
-    snd-soc-allo-digione)
+  AUTOLOAD:=$(call AutoLoad,68,snd-soc-wm8804-i2c snd-soc-wm8804)
   DEPENDS:= \
     kmod-sound-soc-bcm2835-i2s \
     +kmod-sound-soc-rpi-wm8804-soundcard \
@@ -293,8 +292,9 @@ define KernelPackage/sound-soc-audioinjector-isolated-soundcard
     CONFIG_SND_SOC_CS4271_I2C
   FILES:= \
     $(LINUX_DIR)/sound/soc/bcm/snd-soc-audioinjector-isolated-soundcard.ko \
-    $(LINUX_DIR)/sound/soc/codecs/snd-soc-wm8731.ko
-  AUTOLOAD:=$(call AutoLoad,68,snd-soc-cs4271.o \
+    $(LINUX_DIR)/sound/soc/codecs/snd-soc-cs4271.ko \
+    $(LINUX_DIR)/sound/soc/codecs/snd-soc-cs4271-i2c.ko
+  AUTOLOAD:=$(call AutoLoad,68,snd-soc-cs4271 \
     snd-soc-cs4271-i2c \
     snd-soc-audioinjector-isolated-soundcard)
   DEPENDS:= \
@@ -322,7 +322,7 @@ define KernelPackage/sound-soc-audioinjector-octo-soundcard
     $(LINUX_DIR)/sound/soc/bcm/snd-soc-audioinjector-octo-soundcard.ko \
     $(LINUX_DIR)/sound/soc/codecs/snd-soc-cs42xx8.ko \
     $(LINUX_DIR)/sound/soc/codecs/snd-soc-cs42xx8-i2c.ko
-  AUTOLOAD:=$(call AutoLoad,68,snd-soc- \
+  AUTOLOAD:=$(call AutoLoad,68,snd-soc-cs42xx8 snd-soc-cs42xx8-i2c \
     snd-soc-audioinjector-octo-soundcard)
   DEPENDS:= \
     kmod-sound-soc-bcm2835-i2s \
@@ -371,8 +371,7 @@ define KernelPackage/sound-soc-chipdip-dac
     $(LINUX_DIR)/sound/soc/bcm/snd-soc-chipdip-dac.ko
   AUTOLOAD:=$(call AutoLoad,68,snd-soc-chipdip-dac)
   DEPENDS:= \
-    kmod-sound-soc-bcm2835-i2s \
-    @LINUX_5_10
+    kmod-sound-soc-bcm2835-i2s
   $(call AddDepends/sound)
 endef
 
@@ -381,6 +380,30 @@ define KernelPackage/sound-soc-chipdip-dac/description
 endef
 
 $(eval $(call KernelPackage,sound-soc-chipdip-dac))
+
+
+define KernelPackage/sound-soc-dacberry-soundcard
+  TITLE:=Support for DACBERRY400 Soundcard
+  KCONFIG:= \
+    CONFIG_SND_DACBERRY400 \
+    CONFIG_SND_SOC_TLV320AIC3X_I2C
+  FILES:= \
+    $(LINUX_DIR)/sound/soc/bcm/snd-soc-dacberry400.ko \
+    $(LINUX_DIR)/sound/soc/codecs/snd-soc-tlv320aic3x.ko \
+    $(LINUX_DIR)/sound/soc/codecs/snd-soc-tlv320aic3x-i2c.ko
+  AUTOLOAD:=$(call AutoLoad,68,snd-soc-tlv320aic3x-i2c snd-soc-dacberry400)
+  DEPENDS:= \
+    kmod-sound-soc-bcm2835-i2s \
+    +kmod-i2c-bcm2835 \
+    +kmod-regmap-i2c
+  $(call AddDepends/sound)
+endef
+
+define KernelPackage/sound-soc-dacberry-soundcard/description
+  This package contains support for DACBERRY400 Soundcard
+endef
+
+$(eval $(call KernelPackage,sound-soc-dacberry-soundcard))
 
 
 define KernelPackage/sound-soc-digidac1-soundcard
@@ -486,8 +509,7 @@ $(eval $(call KernelPackage,sound-soc-fe-pi))
 define KernelPackage/sound-soc-googlevoicehat
   TITLE:=Support for Google VoiceHAT Sound Card
   KCONFIG:= \
-    CONFIG_SND_BCM2708_SOC_GOOGLEVOICEHAT_SOUNDCARD \
-    CONFIG_SND_SOC_VOICEHAT
+    CONFIG_SND_BCM2708_SOC_GOOGLEVOICEHAT_SOUNDCARD
   FILES:= \
     $(LINUX_DIR)/sound/soc/bcm/snd-soc-googlevoicehat-codec.ko
   AUTOLOAD:=$(call AutoLoad,68,snd-soc-googlevoicehat-codec)
@@ -502,6 +524,31 @@ define KernelPackage/sound-soc-googlevoicehat/description
 endef
 
 $(eval $(call KernelPackage,sound-soc-googlevoicehat))
+
+
+define KernelPackage/sound-soc-hifiberry-adc
+  TITLE:=Support for HifiBerry ADC
+  KCONFIG:= \
+    CONFIG_SND_BCM2708_SOC_HIFIBERRY_ADC \
+    CONFIG_SND_SOC_PCM186X_I2C
+  FILES:= \
+    $(LINUX_DIR)/sound/soc/bcm/snd-soc-hifiberry-adc.ko \
+    $(LINUX_DIR)/sound/soc/codecs/snd-soc-pcm186x.ko \
+    $(LINUX_DIR)/sound/soc/codecs/snd-soc-pcm186x-i2c.ko
+  AUTOLOAD:=$(call AutoLoad,68,snd-soc-pcm186x snd-soc-pcm186x-i2c \
+    snd-soc-hifiberry-adc)
+  DEPENDS:= \
+    kmod-sound-soc-bcm2835-i2s \
+    +kmod-i2c-bcm2835 \
+    +kmod-regmap-i2c
+  $(call AddDepends/sound)
+endef
+
+define KernelPackage/sound-soc-hifiberry-adc/description
+  This package contains support for HifiBerry ADC
+endef
+
+$(eval $(call KernelPackage,sound-soc-hifiberry-adc))
 
 
 define KernelPackage/sound-soc-hifiberry-dac
@@ -660,14 +707,17 @@ define KernelPackage/sound-soc-hifiberry-digi
   TITLE:=Support for HifiBerry Digi / Digi+ / Digi+ Pro
   KCONFIG:= \
     CONFIG_SND_BCM2708_SOC_HIFIBERRY_DIGI \
-    CONFIG_SND_SOC_WM8804
+    CONFIG_SND_SOC_WM8804 \
+    CONFIG_SND_SOC_WM8804_I2C
   FILES:= \
-    $(LINUX_DIR)/sound/soc/codecs/snd-soc-wm8804.ko
-  AUTOLOAD:=$(call AutoLoad,68,snd-soc-wm8804)
+    $(LINUX_DIR)/sound/soc/codecs/snd-soc-wm8804.ko \
+    $(LINUX_DIR)/sound/soc/codecs/snd-soc-wm8804-i2c.ko
+  AUTOLOAD:=$(call AutoLoad,68,snd-soc-wm8804 snd-soc-wm8804-i2c)
   DEPENDS:= \
     kmod-sound-soc-bcm2835-i2s \
     +kmod-sound-soc-rpi-wm8804-soundcard \
-    +kmod-i2c-bcm2835
+    +kmod-i2c-bcm2835 \
+    +kmod-regmap-i2c
   $(call AddDepends/sound)
 endef
 
@@ -803,17 +853,23 @@ define KernelPackage/sound-soc-justboom-both
   KCONFIG:= \
     CONFIG_SND_BCM2708_SOC_JUSTBOOM_BOTH \
     CONFIG_SND_SOC_PCM512x \
-    CONFIG_SND_SOC_WM8804
+    CONFIG_SND_SOC_PCM512x_I2C \
+    CONFIG_SND_SOC_WM8804 \
+    CONFIG_SND_SOC_WM8804_I2C
   FILES:= \
     $(LINUX_DIR)/sound/soc/bcm/snd-soc-justboom-both.ko \
     $(LINUX_DIR)/sound/soc/codecs/snd-soc-pcm512x.ko \
-    $(LINUX_DIR)/sound/soc/codecs/snd-soc-wm8804.ko
-  AUTOLOAD:=$(call AutoLoad,68,snd-soc-pcm512x snd-soc-wm8804 \
+    $(LINUX_DIR)/sound/soc/codecs/snd-soc-pcm512x-i2c.ko \
+    $(LINUX_DIR)/sound/soc/codecs/snd-soc-wm8804.ko \
+    $(LINUX_DIR)/sound/soc/codecs/snd-soc-wm8804-i2c.ko
+  AUTOLOAD:=$(call AutoLoad,68,snd-soc-pcm512x-i2c snd-soc-pcm512x \
+    snd-soc-wm8804-i2c snd-soc-wm8804 \
     snd-soc-justboom-both)
   DEPENDS:= \
     kmod-sound-soc-bcm2835-i2s \
     +kmod-sound-soc-rpi-wm8804-soundcard \
-    +kmod-i2c-bcm2835
+    +kmod-i2c-bcm2835 \
+    +kmod-regmap-i2c
   $(call AddDepends/sound)
 endef
 
@@ -828,14 +884,18 @@ define KernelPackage/sound-soc-justboom-dac
   TITLE:=Support for JustBoom DAC
   KCONFIG:= \
     CONFIG_SND_BCM2708_SOC_JUSTBOOM_DAC \
-    CONFIG_SND_SOC_PCM512x
+    CONFIG_SND_SOC_PCM512x \
+    CONFIG_SND_SOC_PCM512x_I2C
   FILES:= \
     $(LINUX_DIR)/sound/soc/bcm/snd-soc-justboom-dac.ko \
-    $(LINUX_DIR)/sound/soc/codecs/snd-soc-pcm512x.ko
-  AUTOLOAD:=$(call AutoLoad,68,snd-soc-pcm512x snd-soc-justboom-dac)
+    $(LINUX_DIR)/sound/soc/codecs/snd-soc-pcm512x.ko \
+    $(LINUX_DIR)/sound/soc/codecs/snd-soc-pcm512x-i2c.ko
+  AUTOLOAD:=$(call AutoLoad,68,snd-soc-pcm512x-i2c snd-soc-pcm512x \
+    snd-soc-justboom-dac)
   DEPENDS:= \
     kmod-sound-soc-bcm2835-i2s \
-    +kmod-i2c-bcm2835
+    +kmod-i2c-bcm2835 \
+    +kmod-regmap-i2c
   $(call AddDepends/sound)
 endef
 
@@ -850,14 +910,17 @@ define KernelPackage/sound-soc-justboom-digi
   TITLE:=Support for JustBoom Digi
   KCONFIG:= \
     CONFIG_SND_BCM2708_SOC_JUSTBOOM_DIGI \
-    CONFIG_SND_SOC_WM8804
+    CONFIG_SND_SOC_WM8804 \
+    CONFIG_SND_SOC_WM8804_I2C
   FILES:= \
-    $(LINUX_DIR)/sound/soc/codecs/snd-soc-wm8804.ko
-  AUTOLOAD:=$(call AutoLoad,68,snd-soc-wm8804)
+    $(LINUX_DIR)/sound/soc/codecs/snd-soc-wm8804.ko \
+    $(LINUX_DIR)/sound/soc/codecs/snd-soc-wm8804-i2c.ko
+  AUTOLOAD:=$(call AutoLoad,68,snd-soc-wm8804-i2c snd-soc-wm8804)
   DEPENDS:= \
     kmod-sound-soc-bcm2835-i2s \
     +kmod-sound-soc-rpi-wm8804-soundcard \
-    +kmod-i2c-bcm2835
+    +kmod-i2c-bcm2835 \
+    +kmod-regmap-i2c
   $(call AddDepends/sound)
 endef
 
@@ -872,7 +935,6 @@ define KernelPackage/sound-soc-pifi-40-amp
   TITLE:=Support for PiFi-40 amp
   KCONFIG:= \
     CONFIG_SND_BCM2708_SOC_PIFI_40 \
-    CONFIG_SND_PIFI_40 \
     CONFIG_SND_SOC_TAS571X
   FILES:= \
     $(LINUX_DIR)/sound/soc/bcm/snd-soc-pifi-40.ko \
@@ -919,11 +981,10 @@ define KernelPackage/sound-soc-rpi-cirrus
     CONFIG_MFD_ARIZONA=y \
     CONFIG_MFD_ARIZONA_I2C \
     CONFIG_MFD_CS47L24=n \
-    CONFIG_MFD_WM5102=n \
+    CONFIG_MFD_WM5102=y \
     CONFIG_MFD_WM5110=n \
     CONFIG_MFD_WM8997=n \
     CONFIG_MFD_WM8998=n \
-    CONFIG_REGULATOR_ARIZONA \
     CONFIG_REGULATOR_ARIZONA_LDO1 \
     CONFIG_REGULATOR_ARIZONA_MICSUPP \
     CONFIG_SND_BCM2708_SOC_RPI_CIRRUS \
@@ -932,15 +993,19 @@ define KernelPackage/sound-soc-rpi-cirrus
     CONFIG_SND_SOC_WM8804 \
     CONFIG_SND_SOC_WM_ADSP
   FILES:= \
+    $(LINUX_DIR)/drivers/firmware/cirrus/cs_dsp.ko \
+    $(LINUX_DIR)/drivers/mfd/arizona.ko \
+    $(LINUX_DIR)/drivers/mfd/arizona-i2c.ko \
     $(LINUX_DIR)/sound/soc/bcm/snd-soc-rpi-cirrus.ko \
     $(LINUX_DIR)/sound/soc/codecs/snd-soc-arizona.ko \
     $(LINUX_DIR)/sound/soc/codecs/snd-soc-wm-adsp.ko \
     $(LINUX_DIR)/sound/soc/codecs/snd-soc-wm5102.ko \
     $(LINUX_DIR)/sound/soc/codecs/snd-soc-wm8804.ko
-  AUTOLOAD:=$(call AutoLoad,68,snd-soc-pcm1794a snd-soc-rpi-cirrus)
+  AUTOLOAD:=$(call AutoLoad,68,snd-soc-rpi-cirrus)
   DEPENDS:= \
+    kmod-sound-soc-bcm2835-i2s \
     +kmod-i2c-bcm2835 \
-    kmod-sound-soc-bcm2835-i2s
+    +kmod-regmap-i2c
   $(call AddDepends/sound)
 endef
 
@@ -1017,3 +1082,19 @@ define KernelPackage/sound-soc-rpi-proto/description
 endef
 
 $(eval $(call KernelPackage,sound-soc-rpi-proto))
+
+
+define KernelPackage/bcm27xx-sound
+  SUBMENU:=$(SOUND_MENU)
+  TITLE:=Onboard audio support for bcm27xx boards
+  DEPENDS:=@TARGET_bcm27xx \
+	+kmod-sound-core +kmod-sound-arm-bcm2835
+endef
+
+define KernelPackage/bcm27xx-sound/description
+ Pulls in onboard audio support. Not installed by default --
+ headless/router deployments don't need it; install this if you
+ want sound output on this board.
+endef
+
+$(eval $(call KernelPackage,bcm27xx-sound))

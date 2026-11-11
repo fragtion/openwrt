@@ -35,6 +35,7 @@ usage() {
 	printf "\n\t-l ==> legacy mode character (@ etc otherwise -)"
 	printf "\n\t-o ==> create output file 'its_file'"
 	printf "\n\t-O ==> create config with dt overlay 'name:dtb'"
+	printf "\n\t-s ==> set FDT load address to 'addr' (hex)"
 	printf "\n\t\t(can be specified more than once)\n"
 	exit 1
 }
@@ -48,7 +49,7 @@ LOADABLES=
 DTOVERLAY=
 DTADDR=
 
-while getopts ":A:a:c:C:D:d:e:f:i:k:l:n:o:O:v:r:H:" OPTION
+while getopts ":A:a:c:C:D:d:e:f:i:k:l:n:o:O:v:r:s:H:" OPTION
 do
 	case $OPTION in
 		A ) ARCH=$OPTARG;;
@@ -66,6 +67,7 @@ do
 		o ) OUTPUT=$OPTARG;;
 		O ) DTOVERLAY="$DTOVERLAY ${OPTARG}";;
 		r ) ROOTFS=$OPTARG;;
+		s ) FDTADDR=$OPTARG;;
 		H ) HASH=$OPTARG;;
 		v ) VERSION=$OPTARG;;
 		* ) echo "Invalid option passed to '$0' (options:$*)"
@@ -80,15 +82,19 @@ if [ -z "${ARCH}" ] || [ -z "${COMPRESS}" ] || [ -z "${LOAD_ADDR}" ] || \
 	usage
 fi
 
+if [ -n "${ROOTFS}" ] && [ ! -f "${ROOTFS}".pagesync ]; then
+	echo "Missing .pagesync blob for RootFS blob '${ROOTFS}'"
+	exit 1
+fi
+
 ARCH_UPPER=$(echo "$ARCH" | tr '[:lower:]' '[:upper:]')
 
 if [ -n "${COMPATIBLE}" ]; then
 	COMPATIBLE_PROP="compatible = \"${COMPATIBLE}\";"
 fi
 
-[ "$DTOVERLAY" ] && {
-	dtbsize=$(wc -c "$DTB" | cut -d' ' -f1)
-	DTADDR=$(printf "0x%08x" $(($LOAD_ADDR - $dtbsize)) )
+[ "$FDTADDR" ] && {
+	DTADDR="$FDTADDR"
 }
 
 # Conditionally create fdt information
@@ -102,10 +108,10 @@ if [ -n "${DTB}" ]; then
 			${DTADDR:+load = <${DTADDR}>;}
 			arch = \"${ARCH}\";
 			compression = \"none\";
-			hash@1 {
+			hash${REFERENCE_CHAR}1 {
 				algo = \"crc32\";
 			};
-			hash@2 {
+			hash${REFERENCE_CHAR}2 {
 				algo = \"${HASH}\";
 			};
 		};
@@ -122,10 +128,10 @@ if [ -n "${INITRD}" ]; then
 			type = \"ramdisk\";
 			arch = \"${ARCH}\";
 			os = \"linux\";
-			hash@1 {
+			hash${REFERENCE_CHAR}1 {
 				algo = \"crc32\";
 			};
-			hash@2 {
+			hash${REFERENCE_CHAR}2 {
 				algo = \"${HASH}\";
 			};
 		};
@@ -135,19 +141,18 @@ fi
 
 
 if [ -n "${ROOTFS}" ]; then
-	dd if="${ROOTFS}" of="${ROOTFS}.pagesync" bs=4096 conv=sync
 	ROOTFS_NODE="
-		rootfs-$ROOTFSNUM {
+		rootfs${REFERENCE_CHAR}$ROOTFSNUM {
 			description = \"${ARCH_UPPER} OpenWrt ${DEVICE} rootfs\";
 			${COMPATIBLE_PROP}
 			data = /incbin/(\"${ROOTFS}.pagesync\");
 			type = \"filesystem\";
 			arch = \"${ARCH}\";
 			compression = \"none\";
-			hash@1 {
+			hash${REFERENCE_CHAR}1 {
 				algo = \"crc32\";
 			};
-			hash@2 {
+			hash${REFERENCE_CHAR}2 {
 				algo = \"${HASH}\";
 			};
 		};
@@ -162,9 +167,8 @@ OVCONFIGS=""
 	overlay_blob=${overlay##*:}
 	ovname=${overlay%%:*}
 	ovnode="fdt-$ovname"
-	ovsize=$(wc -c "$overlay_blob" | cut -d' ' -f1)
+	ovsize=$(wc -c "$overlay_blob" | awk '{print $1}')
 	echo "$ovname ($overlay_blob) : $ovsize" >&2
-	DTADDR=$(printf "0x%08x" $(($DTADDR - $ovsize)))
 	FDTOVERLAY_NODE="$FDTOVERLAY_NODE
 
 		$ovnode {
@@ -173,25 +177,21 @@ OVCONFIGS=""
 			data = /incbin/(\"${overlay_blob}\");
 			type = \"flat_dt\";
 			arch = \"${ARCH}\";
-			load = <${DTADDR}>;
 			compression = \"none\";
-			hash@1 {
+			hash${REFERENCE_CHAR}1 {
 				algo = \"crc32\";
 			};
-			hash@2 {
+			hash${REFERENCE_CHAR}2 {
 				algo = \"${HASH}\";
 			};
 		};
 "
 	OVCONFIGS="$OVCONFIGS
 
-		config-$ovname {
-			description = \"OpenWrt ${DEVICE} with $ovname\";
-			kernel = \"kernel${REFERENCE_CHAR}1\";
-			fdt = \"fdt${REFERENCE_CHAR}$FDTNUM\", \"$ovnode\";
-			${LOADABLES:+loadables = ${LOADABLES};}
+		$ovname {
+			description = \"OpenWrt ${DEVICE} overlay $ovname\";
+			fdt = \"$ovnode\";
 			${COMPATIBLE_PROP}
-			${INITRD_PROP}
 		};
 	"
 done
@@ -213,10 +213,10 @@ DATA="/dts-v1/;
 			compression = \"${COMPRESS}\";
 			load = <${LOAD_ADDR}>;
 			entry = <${ENTRY_ADDR}>;
-			hash@1 {
+			hash${REFERENCE_CHAR}1 {
 				algo = \"crc32\";
 			};
-			hash@2 {
+			hash${REFERENCE_CHAR}2 {
 				algo = \"$HASH\";
 			};
 		};

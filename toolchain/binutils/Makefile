@@ -8,38 +8,40 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=binutils
 PKG_VERSION:=$(call qstrip,$(CONFIG_BINUTILS_VERSION))
-BIN_VERSION:=$(PKG_VERSION)
+BASE_VERSION:=$(subst $(space),.,$(wordlist 1,2,$(subst .,$(space),$(PKG_VERSION))))
 
 PKG_SOURCE_URL:=@GNU/binutils/
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+PKG_CPE_ID:=cpe:/a:gnu:binutils
 
 TAR_OPTIONS += --exclude='*.rej'
 
-ifeq ($(PKG_VERSION),2.32)
-  PKG_HASH:=0ab6c55dd86a92ed561972ba15b9b70a8b9f75557f896446c82e8b36e473ee04
+ifeq ($(PKG_VERSION),2.44)
+  PKG_HASH:=ce2017e059d63e67ddb9240e9d4ec49c2893605035cd60e92ad53177f4377237
 endif
 
-ifeq ($(PKG_VERSION),2.34)
-  PKG_HASH:=f00b0e8803dc9bab1e2165bd568528135be734df3fabf8d0161828cd56028952
+ifeq ($(PKG_VERSION),2.45.1)
+  PKG_HASH:=5fe101e6fe9d18fdec95962d81ed670fdee5f37e3f48f0bef87bddf862513aa5
 endif
 
-ifeq ($(PKG_VERSION),2.35.2)
-  PKG_HASH:=dcd5b0416e7b0a9b24bed76cd8c6c132526805761863150a26d016415b8bdc7b
-endif
-
-ifeq ($(PKG_VERSION),2.36.1)
-  PKG_HASH:=e81d9edf373f193af428a0f256674aea62a9d74dfe93f65192d4eae030b0f3b0
-endif
-
-ifeq ($(PKG_VERSION),2.37)
-  PKG_HASH:=820d9724f020a3e69cb337893a0b63c2db161dadcb0e06fc11dc29eb1e84a32c
+ifeq ($(PKG_VERSION),2.46.1)
+  PKG_HASH:=e127a709cba24c76de8936cb7083dd768f28cd37eb010492e2f19b71eb1294e4
 endif
 
 HOST_BUILD_PARALLEL:=1
 
-PATCH_DIR:=./patches/$(PKG_VERSION)
+PATCH_DIR:=./patches/$(BASE_VERSION)
 
 include $(INCLUDE_DIR)/toolchain-build.mk
+
+export ZSTD_CFLAGS=-I$(STAGING_DIR_HOST)/include -pthread
+export ZSTD_LIBS=-L$(STAGING_DIR_HOST)/lib -lzstd -lpthread
+
+ifdef CONFIG_GCC_USE_GRAPHITE
+  GRAPHITE_CONFIGURE:= --with-isl=$(STAGING_DIR_HOST)
+else
+  GRAPHITE_CONFIGURE:= --without-isl --without-cloog
+endif
 
 HOST_CONFIGURE_ARGS = \
 	--prefix=$(TOOLCHAIN_DIR) \
@@ -47,13 +49,21 @@ HOST_CONFIGURE_ARGS = \
 	--host=$(GNU_HOST_NAME) \
 	--target=$(REAL_GNU_TARGET_NAME) \
 	--with-sysroot=$(TOOLCHAIN_DIR) \
+	--enable-dependency-tracking \
+	--enable-serial-configure \
+	--enable-obsolete \
 	--enable-deterministic-archives \
 	--enable-plugins \
-	--disable-multilib \
+	--enable-lto \
 	--disable-werror \
+	--disable-gprofng \
+	--disable-multilib \
 	--disable-nls \
 	--disable-sim \
 	--disable-gdb \
+	--with-system-zlib \
+	--with-zstd \
+	--without-debuginfod \
 	$(GRAPHITE_CONFIGURE) \
 	$(SOFT_FLOAT_CONFIG_OPTION) \
 	$(call qstrip,$(CONFIG_EXTRA_BINUTILS_CONFIG_OPTIONS))
@@ -71,37 +81,51 @@ ifneq ($(CONFIG_EXTRA_TARGET_ARCH),)
 		--enable-targets=$(call qstrip,$(CONFIG_EXTRA_TARGET_ARCH_NAME))-linux-$(TARGET_SUFFIX)
 endif
 
-HOST_CONFIGURE_VARS += \
-	acx_cv_cc_gcc_supports_ada=false
+BINUTILS_VARS = \
+	ac_cv_path_EXPECT= \
+	ac_cv_path_GMSGFMT=: \
+	ac_cv_path_MSGFMT=: \
+	ac_cv_path_MSGMERGE=: \
+	ac_cv_path_XGETTEXT=: \
+	ac_cv_prog_ACLOCAL=$(STAGING_DIR_HOST)/bin/aclocal \
+	ac_cv_prog_AUTOCONF=$(STAGING_DIR_HOST)/bin/autoconf \
+	ac_cv_prog_AUTOHEADER=$(STAGING_DIR_HOST)/bin/autoheader \
+	ac_cv_prog_AUTOMAKE=$(STAGING_DIR_HOST)/bin/automake \
+	ac_cv_prog_CARGO= \
+	ac_cv_prog_EXPECT= \
+	ac_cv_prog_GDC= \
+	ac_cv_prog_GNATBIND= \
+	ac_cv_prog_GNATMAKE= \
+	ac_cv_prog_MAKEINFO= \
+	ac_cv_prog_ac_ct_GDC= \
+	ac_cv_prog_ac_ct_GNATBIND= \
+	ac_cv_prog_ac_ct_GNATMAKE= \
+	ac_cv_dejagnu_compat=no \
+	ac_cv_libctf_tcl_try=no \
+	acx_cv_cc_gcc_supports_ada=no \
+	acx_cv_d_compiler_works=no \
+
+
+HOST_CONFIGURE_VARS += $(BINUTILS_VARS)
+
+HOST_MAKE_VARS += $(BINUTILS_VARS)
 
 define Host/Prepare
 	$(call Host/Prepare/Default)
 	ln -snf $(notdir $(HOST_BUILD_DIR)) $(BUILD_DIR_TOOLCHAIN)/$(PKG_NAME)
 	$(CP) $(SCRIPT_DIR)/config.{guess,sub} $(HOST_BUILD_DIR)/
-	$(SED) 's, " Linaro.*,,' $(HOST_BUILD_DIR)/bfd/version.h
 endef
 
 define Host/Compile
-	+$(MAKE) $(HOST_JOBS) -C $(HOST_BUILD_DIR) all
+	+$(HOST_MAKE_VARS) \
+	$(MAKE) $(HOST_JOBS) -C $(HOST_BUILD_DIR) all
 endef
 
 define Host/Install
-	mkdir -p $(TOOLCHAIN_DIR)/initial
 	$(MAKE) -C $(HOST_BUILD_DIR) \
-		prefix=$(TOOLCHAIN_DIR)/initial \
 		install
-	$(MAKE) -C $(HOST_BUILD_DIR) \
-		prefix=$(TOOLCHAIN_DIR) \
-		install
-	$(call FixupLibdir,$(TOOLCHAIN_DIR)/initial)
-	$(RM) $(TOOLCHAIN_DIR)/initial/lib/libiberty.a
+	$(call FixupLibdir,$(TOOLCHAIN_DIR))
 	$(CP) $(TOOLCHAIN_DIR)/bin/$(REAL_GNU_TARGET_NAME)-readelf $(HOST_BUILD_PREFIX)/bin/readelf
-	# ARC gcc requires extlib.
-	# If extlib is not available in "initial" folder
-	# initial gcc will fail to build libc.
-	if [ -d $(TOOLCHAIN_DIR)/extlib ]; then \
-		$(CP) -r $(TOOLCHAIN_DIR)/extlib $(TOOLCHAIN_DIR)/initial/; \
-	fi
 endef
 
 define Host/Clean

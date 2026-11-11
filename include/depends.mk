@@ -11,7 +11,12 @@
 
 DEP_FINDPARAMS := -x "*/.svn*" -x ".*" -x "*:*" -x "*\!*" -x "* *" -x "*\\\#*" -x "*/.*_check" -x "*/.*.swp" -x "*/.pkgdir*"
 
-find_md5=find $(wildcard $(1)) -type f $(patsubst -x,-and -not -path,$(DEP_FINDPARAMS) $(2)) -printf "%p%T@\n" | sort | $(MKHASH) md5
+find_md5=find $(wildcard $(1)) -type f $(patsubst -x,-and -not -path,$(DEP_FINDPARAMS) $(2)) -printf "%p%T@\n" | LC_ALL=C sort | $(MKHASH) md5
+find_md5_reproducible=find $(wildcard $(1)) -type f $(patsubst -x,-and -not -path,$(DEP_FINDPARAMS) $(2)) -print0 | xargs -0 $(MKHASH) md5 | LC_ALL=C sort | $(MKHASH) md5
+
+# Make expands the names of the prepared stamps several times, so hash the
+# package files only on first use.
+PKG_FILES_MD5=$(eval PKG_FILES_MD5:=$(shell $(call $(if $(CONFIG_AUTOREMOVE),find_md5_reproducible,find_md5),${CURDIR} $(PKG_FILE_DEPENDS),)))$(PKG_FILES_MD5)
 
 define rdep
   .PRECIOUS: $(2)
@@ -27,7 +32,7 @@ ifneq ($(wildcard $(2)),)
 		{ [ \! -f "$(3)" ] || diff $(3) $(3).1 >/dev/null; } && \
 	) \
 	{ \
-		[ -f "$(2)_check.1" ] && mv "$(2)_check.1"; \
+		[ -f "$(2)_check.1" ] && mv "$(2)_check.1" "$(2)_check"; \
 	    $(TOPDIR)/scripts/timestamp.pl $(DEP_FINDPARAMS) $(4) -n $(2) $(1) && { \
 			$(call debug_eval,$(SUBDIR),r,echo "No need to rebuild $(2)";) \
 			touch -r "$(2)" "$(2)_check"; \

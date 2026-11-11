@@ -4,6 +4,9 @@ use lib "$FindBin::Bin";
 use strict;
 use metadata;
 use Getopt::Long;
+use Time::Piece;
+use JSON::PP;
+use Digest::MD5 qw(md5_hex);
 
 my %board;
 
@@ -160,6 +163,8 @@ sub mconf_depends {
 		$depend =~ s/^([@\+]+)// and $flags = $1;
 		my $condition = $parent_condition;
 
+		$depend = $2 if	$depend =~ /^(.+):(.+)$/ and $dep->{$1} eq 'select';
+
 		next if $condition eq $depend;
 		next if $seen->{"$parent_condition:$depend"};
 		next if $seen->{":$depend"};
@@ -176,6 +181,8 @@ sub mconf_depends {
 		}
 		if ($flags =~ /\+/) {
 			my $vdep = $vpackage{$depend};
+			my $rank;
+			my $negation;
 			if ($vdep) {
 				my @vdeps;
 
@@ -191,22 +198,33 @@ sub mconf_depends {
 				$depend = shift @vdeps;
 
 				if (@vdeps > 1) {
-					$condition = ($condition ? "$condition && " : '') . join("&&", map { "PACKAGE_$_<PACKAGE_$pkgname" } @vdeps);
+					$rank = join("&&", map { "PACKAGE_$_<PACKAGE_$pkgname" } @vdeps);
+					$negation = '!('.join("||", map { "PACKAGE_$_" } @vdeps).')';
 				} elsif (@vdeps > 0) {
-					$condition = ($condition ? "$condition && " : '') . "PACKAGE_${vdeps[0]}<PACKAGE_$pkgname";
+					$rank = "PACKAGE_${vdeps[0]}<PACKAGE_$pkgname";
+					$negation = '!PACKAGE_'.$vdeps[0];
 				}
 			}
 
 			# Menuconfig will not treat 'select FOO' as a real dependency
 			# thus if FOO depends on other config options, these dependencies
 			# will not be checked. To fix this, we simply emit all of FOO's
-			# depends here as well.
-			$package{$depend} and push @t_depends, [ $package{$depend}->{depends}, $condition ];
+			# depends here as well. Re-emitted deps carry the pre-rank
+			# negation instead of the rank, as before 1fd50531.
+			my $reemit = $condition;
+			$reemit = ($reemit ? "$reemit && " : '') . $negation if defined $negation;
+			$package{$depend} and push @t_depends, [ $package{$depend}->{depends}, $reemit ];
 
 			$m = "select";
 			next if $only_dep;
 
 			$flags =~ /@/ or $depend = "PACKAGE_$depend";
+
+			# arbitration gate for select emission only (1fd50531's charter);
+			# re-emission above carries the negation instead of the rank
+			if (defined $rank) {
+				$condition = ($condition ? "$condition && " : '') . $rank;
+			}
 		} else {
 			my $vdep = $vpackage{$depend};
 			if ($vdep && @$vdep > 0) {
@@ -232,7 +250,7 @@ sub mconf_depends {
 		mconf_depends($pkgname, $tdep->[0], 1, $dep, $seen, $tdep->[1]);
 	}
 
-	foreach my $depend (keys %$dep) {
+	foreach my $depend (sort keys %$dep) {
 		my $m = $dep->{$depend};
 		$res .= "\t\t$m $depend\n";
 	}
@@ -249,6 +267,52 @@ sub mconf_conflicts {
 		$res .= "\t\tdepends on m || (PACKAGE_$depend != y)\n";
 	}
 	return $res;
+}
+
+sub add_implicit_provides_conflicts {
+	foreach my $provide (keys %vpackage) {
+		next if $provide =~ /-any$/;
+
+		my $providers = $vpackage{$provide};
+		next unless $providers && @$providers > 1;
+
+		my $default_pkg;
+		my @non_defaults;
+
+		foreach my $pkg (@$providers) {
+			next if $pkg->{buildonly};
+			if ($pkg->{variant_default}) {
+				$default_pkg = $pkg;
+			} else {
+				push @non_defaults, $pkg;
+			}
+		}
+
+		next unless $default_pkg && @non_defaults;
+
+		my %existing_conflicts;
+		if ($default_pkg->{conflicts}) {
+			%existing_conflicts = map { $_ => 1 } @{$default_pkg->{conflicts}};
+		}
+
+		foreach my $non_default (@non_defaults) {
+			next if $existing_conflicts{$non_default->{name}};
+
+			my $already_conflicts = 0;
+			if ($non_default->{conflicts}) {
+				foreach my $c (@{$non_default->{conflicts}}) {
+					if ($c eq $default_pkg->{name}) {
+						$already_conflicts = 1;
+						last;
+					}
+				}
+			}
+			next if $already_conflicts;
+
+			$default_pkg->{conflicts} ||= [];
+			push @{$default_pkg->{conflicts}}, $non_default->{name};
+		}
+	}
 }
 
 sub print_package_config_category($) {
@@ -346,11 +410,13 @@ sub print_package_overrides() {
 
 sub gen_package_config() {
 	parse_package_metadata($ARGV[0]) or exit 1;
+	add_implicit_provides_conflicts();
 	print "menuconfig IMAGEOPT\n\tbool \"Image configuration\"\n\tdefault n\n";
 	print "source \"package/*/image-config.in\"\n";
 	if (scalar glob "package/feeds/*/*/image-config.in") {
 	    print "source \"package/feeds/*/*/image-config.in\"\n";
 	}
+	print_package_config_category 'Hardware support';
 	print_package_config_category 'Base system';
 	foreach my $cat (sort {uc($a) cmp uc($b)} keys %category) {
 		print_package_config_category $cat;
@@ -369,7 +435,7 @@ sub and_condition($) {
 
 sub gen_condition ($) {
 	my $condition = shift;
-	# remove '!()', just as include/package-ipkg.mk does
+	# remove '!()', just as include/package-pack.mk does
 	$condition =~ s/[()!]//g;
 	return join("", map(and_condition($_), split('\|\|', $condition)));
 }
@@ -395,6 +461,8 @@ sub gen_package_mk() {
 	foreach my $srcname (sort {uc($a) cmp uc($b)} keys %srcpackage) {
 		my $src = $srcpackage{$srcname};
 		my $variant_default;
+		my @variants;
+		my %variant_config;
 		my %deplines = ('' => {});
 
 		foreach my $pkg (@{$src->{packages}}) {
@@ -444,12 +512,21 @@ sub gen_package_mk() {
 				if (!defined($variant_default) or $pkg->{variant_default}) {
 					$variant_default = $pkg->{variant};
 				}
-				printf "\$(curdir)/%s/variants += \$(if %s,%s)\n", $src->{path}, $config, $pkg->{variant};
+				push @variants, $pkg->{variant} unless defined $variant_config{$pkg->{variant}};
+				$variant_config{$pkg->{variant}} .= $config;
 			}
+		}
+
+		foreach my $variant (@variants) {
+			printf "\$(curdir)/%s/variants += \$(if %s,%s)\n", $src->{path}, $variant_config{$variant}, $variant;
 		}
 
 		if (defined($variant_default)) {
 			printf "\$(curdir)/%s/default-variant := %s\n", $src->{path}, $variant_default;
+		}
+
+		if ($src->{parallel_variants}) {
+			printf "\$(curdir)/%s/parallel-variants := 1\n", $src->{path};
 		}
 
 		unless (grep {!$_->{buildonly}} @{$src->{packages}}) {
@@ -534,13 +611,15 @@ sub gen_package_auxiliary() {
 		}
 		my %depends;
 		foreach my $dep (@{$pkg->{depends} || []}) {
-			if ($dep =~ m!^\+?(?:[^:]+:)?([^@]+)$!) {
-				$depends{$1}++;
-			}
+			next unless $dep =~ m!^\+?(?:([^:]+):)?([^@]+)$!;
+			my ($condition, $depname) = ($1, $2);
+			$depends{get_conditional_dep($condition, $depname)}++;
 		}
 		my @depends = sort keys %depends;
 		if (@depends > 0) {
 			foreach my $n (@{$pkg->{provides}}) {
+				# A real package of that name keeps its own dependencies
+				next if $n ne $name && $package{$n};
 				print "Package/$n/depends = @depends\n";
 			}
 		}
@@ -609,6 +688,7 @@ ${json}{
 "version":"$pkg->{version}",
 "category":"$pkg->{category}",
 "license":"$pkg->{license}",
+"cpe_id":"$pkg->{cpe_id}",
 "maintainer": [$pkg_maintainer],
 "depends":[$pkg_deps]},
 END_JSON
@@ -617,6 +697,187 @@ END_JSON
 	$json =~ s/[\n\r]//g;
 	$json =~ s/\,$//;
 	print "[$json]";
+}
+
+sub image_manifest_packages($)
+{
+	my %packages;
+	my $imgmanifest = shift;
+
+	open FILE, "<$imgmanifest" or return;
+	while (<FILE>) {
+		/^(.+?) - (.+)$/ and $packages{$1} = $2;
+	}
+	close FILE;
+
+	return %packages;
+}
+
+sub dump_cyclonedxsbom_json {
+	my (@components) = @_;
+
+	my $json = JSON::PP->new->canonical(1);
+	my $epoch = $ENV{SOURCE_DATE_EPOCH};
+	my $timestamp;
+
+	if (defined($epoch) && $epoch ne '') {
+		$epoch =~ /^\d+$/ or die "SOURCE_DATE_EPOCH is not a number\n";
+		$timestamp = gmtime($epoch)->datetime . 'Z';
+	} else {
+		$timestamp = gmtime->datetime . 'Z';
+	}
+
+	my $digest = md5_hex($timestamp . $json->encode([@components]));
+	my $uuid = sprintf(
+	    "%s-%s-3%s-%x%s-%s",
+	    substr($digest, 0, 8), substr($digest, 8, 4),
+	    substr($digest, 13, 3),
+	    (hex(substr($digest, 16, 1)) & 0x3) | 0x8, substr($digest, 17, 3),
+	    substr($digest, 20, 12)
+	);
+
+	my $cyclonedx = {
+		bomFormat => "CycloneDX",
+		specVersion => "1.4",
+		serialNumber => "urn:uuid:$uuid",
+		version => 1,
+		metadata => {
+			timestamp => $timestamp,
+		},
+		"components" => [@components],
+	};
+
+	return $json->encode($cyclonedx);
+}
+
+sub gen_image_cyclonedxsbom() {
+	my $pkginfo = shift @ARGV;
+	my $imgmanifest = shift @ARGV;
+	my @components;
+	my %image_packages;
+
+	%image_packages = image_manifest_packages($imgmanifest);
+	%image_packages or exit 1;
+	parse_package_metadata($pkginfo) or exit 1;
+
+	$package{"kernel"} = {
+		license => "GPL-2.0",
+		cpe_id  => "cpe:/o:linux:linux_kernel",
+		name    => "kernel",
+		category  => "operating-system",
+	};
+
+	my %abimap;
+	my @abipkgs = grep { defined $package{$_}->{abi_version} } keys %package;
+	foreach my $name (@abipkgs) {
+		my $pkg = $package{$name};
+		my $abipkg = $name . $pkg->{abi_version};
+		$abimap{$abipkg} = $name;
+	}
+
+	foreach my $name (sort {uc($a) cmp uc($b)} keys %image_packages) {
+		my $pkg = $package{$name};
+		if (!$pkg) {
+			$pkg = $package{$abimap{$name}};
+			next if !$pkg;
+		}
+
+		my @licenses;
+		my @license = split(/\s+/, $pkg->{license});
+		foreach my $lic (@license) {
+			push @licenses, (
+				{ "license" => { "name" => $lic } }
+			);
+		}
+		my $type;
+		if ($pkg->{category}) {
+			my $category = $pkg->{category};
+			my %cat_type = (
+				"operating-system"        => "operating-system",
+				"Firmware"        => "firmware",
+				"Libraries"       => "library"
+			);
+
+			if ($cat_type{$category}) {
+				$type = $cat_type{$category};
+			} else {
+				$type = "application";
+			}
+		}
+
+		my $version = $pkg->{version};
+		if ($image_packages{$name}) {
+			$version = $image_packages{$name};
+		}
+		$version =~ s/-r\d+$// if $version;
+		if ($name =~ /^(kernel|kmod-)/ and $version =~ /^(\d+\.\d+\.\d+)/) {
+			$version = $1;
+		}
+
+		push @components, {
+			name => $pkg->{name},
+			version => $version,
+			@licenses > 0 ? (licenses => [ @licenses ]) : (),
+			$pkg->{cpe_id} ? (cpe => $pkg->{cpe_id}.":".$version) : (),
+			$type ? (type => $type) : (),
+			$version ? (version => $version) : (),
+		};
+	}
+
+	print dump_cyclonedxsbom_json(@components);
+}
+
+sub gen_package_cyclonedxsbom() {
+	my $pkgmanifest = shift @ARGV;
+	my @components;
+	my %mpkgs;
+
+	%mpkgs = parse_package_manifest_metadata($pkgmanifest);
+	%mpkgs or exit 1;
+
+	foreach my $name (sort {uc($a) cmp uc($b)} keys %mpkgs) {
+		my $pkg = $mpkgs{$name};
+
+		my @licenses;
+		my @license = split(/\s+/, $pkg->{license});
+		foreach my $lic (@license) {
+			push @licenses, (
+				{ "license" => { "name" => $lic } }
+			);
+		}
+
+		my $type;
+		if ($pkg->{section}) {
+			my $section = $pkg->{section};
+			my %section_type = (
+				"firmware" => "firmware",
+				"libs" => "library"
+			);
+
+			if ($section_type{$section}) {
+				$type = $section_type{$section};
+			} else {
+				$type = "application";
+			}
+		}
+
+		my $version = $pkg->{version};
+		$version =~ s/-r\d+$// if $version;
+		if ($name =~ /^(kernel|kmod-)/ and $version =~ /^(\d+\.\d+\.\d+)/) {
+			$version = $1;
+		}
+
+		push @components, {
+			name => $name,
+			version => $version,
+			@licenses > 0 ? (licenses => [ @licenses ]) : (),
+			$pkg->{cpe_id} ? (cpe => $pkg->{cpe_id}.":".$version) : (),
+			$type ? (type => $type) : (),
+			$version ? (version => $version) : (),
+		};
+	}
+
+	print dump_cyclonedxsbom_json(@components);
 }
 
 sub parse_command() {
@@ -629,6 +890,8 @@ sub parse_command() {
 		/^source$/ and return gen_package_source();
 		/^pkgaux$/ and return gen_package_auxiliary();
 		/^pkgmanifestjson$/ and return gen_package_manifest_json();
+		/^imgcyclonedxsbom$/ and return gen_image_cyclonedxsbom();
+		/^pkgcyclonedxsbom$/ and return gen_package_cyclonedxsbom();
 		/^license$/ and return gen_package_license(0);
 		/^licensefull$/ and return gen_package_license(1);
 		/^usergroup$/ and return gen_usergroup_list();
@@ -636,15 +899,17 @@ sub parse_command() {
 	}
 	die <<EOF
 Available Commands:
-	$0 mk [file]				Package metadata in makefile format
-	$0 config [file] 			Package metadata in Kconfig format
+	$0 mk [file]					Package metadata in makefile format
+	$0 config [file] 				Package metadata in Kconfig format
 	$0 kconfig [file] [config] [patchver]	Kernel config overrides
-	$0 source [file] 			Package source file information
-	$0 pkgaux [file]			Package auxiliary variables in makefile format
-	$0 pkgmanifestjson [file]		Package manifests in JSON format
-	$0 license [file] 			Package license information
+	$0 source [file] 				Package source file information
+	$0 pkgaux [file]				Package auxiliary variables in makefile format
+	$0 pkgmanifestjson [file]			Package manifests in JSON format
+	$0 imgcyclonedxsbom <file> [manifest]	Image package manifest in CycloneDX SBOM JSON format
+	$0 pkgcyclonedxsbom <file>			Package manifest in CycloneDX SBOM JSON format
+	$0 license [file] 				Package license information
 	$0 licensefull [file] 			Package license information (full list)
-	$0 usergroup [file]			Package usergroup allocation list
+	$0 usergroup [file]				Package usergroup allocation list
 	$0 version_filter [patchver] [list...]	Filter list of version tagged strings
 
 Options:

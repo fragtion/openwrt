@@ -7,26 +7,25 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=elfutils
-PKG_VERSION:=0.186
+PKG_VERSION:=0.196
 PKG_RELEASE:=1
 
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.bz2
-PKG_SOURCE_URL:=https://sourceware.org/$(PKG_NAME)/ftp/$(PKG_VERSION)
-PKG_HASH:=7f6fb9149b1673d38d9178a0d3e0fb8a1ec4f53a9f4c2ff89469609879641177
+PKG_SOURCE_URL:=https://sourceware.org/$(PKG_NAME)/ftp/$(PKG_VERSION) \
+                https://mirrors.kernel.org/sourceware/$(PKG_NAME)/$(PKG_VERSION)
+PKG_HASH:=fd5cc6b77ad6773cac93cb3f415f9318ac3b3455eecf801f6b4a742c4f6c7209
 
 PKG_MAINTAINER:=Luiz Angelo Daros de Luca <luizluca@gmail.com>
-PKG_LICENSE:=GPL-3.0-or-later
+PKG_LICENSE:=GPL-2.0-or-later LGPL-3.0-or-later
 PKG_LICENSE_FILES:=COPYING COPYING-GPLV2 COPYING-LGPLV3
 PKG_CPE_ID:=cpe:/a:elfutils_project:elfutils
 
 PKG_FIXUP:=autoreconf
 PKG_INSTALL:=1
-PKG_USE_MIPS16:=1
 PKG_BUILD_DEPENDS:=!USE_GLIBC:argp-standalone
 
 include $(INCLUDE_DIR)/package.mk
 include $(INCLUDE_DIR)/nls.mk
-include $(INCLUDE_DIR)/host-build.mk
 
 define Package/elfutils/Default
   SECTION:=libs
@@ -52,7 +51,6 @@ define Package/libelf
   $(call Package/elfutils/Default)
   DEPENDS:=$(INTL_DEPENDS) +zlib
   TITLE+= (libelf)
-  PROVIDES:=libelf1
 endef
 
 ifeq ($(CONFIG_BUILD_NLS),y)
@@ -62,8 +60,11 @@ CONFIGURE_ARGS += --disable-nls
 endif
 
 HOST_CONFIGURE_ARGS += \
+	--disable-shared \
+	--disable-nls \
 	--disable-debuginfod \
 	--disable-libdebuginfod \
+	--without-bzlib \
 	--without-lzma \
 	--without-zstd
 
@@ -71,6 +72,7 @@ CONFIGURE_ARGS += \
 	--program-prefix=eu- \
 	--disable-debuginfod \
 	--disable-libdebuginfod \
+	--without-bzlib \
 	--without-lzma \
 	--without-zstd
 
@@ -80,7 +82,13 @@ HOST_CONFIGURE_VARS += \
 CONFIGURE_VARS += \
 	ac_cv_search__obstack_free=yes
 
-TARGET_CFLAGS += -D_GNU_SOURCE -Wno-unused-result -Wno-format-nonliteral
+TARGET_CFLAGS += \
+	-D_GNU_SOURCE \
+	-Wno-unused-result \
+	-Wno-format-nonliteral \
+	-Wno-error=use-after-free
+
+TARGET_LDFLAGS += $(FPIC)
 
 define Build/InstallDev
 	$(INSTALL_DIR) $(1)/usr/include
@@ -110,7 +118,6 @@ define Package/libelf/install
 endef
 
 # these lines need to be ordered by dependency because of ABI versioning
-$(eval $(call HostBuild))
 $(eval $(call BuildPackage,libelf))
 $(eval $(call BuildPackage,libdw))
 $(eval $(call BuildPackage,libasm))

@@ -6,7 +6,8 @@ RAMFS_COPY_DATA='/etc/fw_env.config /var/lock/fw_printenv.lock'
 
 platform_check_image() {
 	case "$(board_name)" in
-	asus,rt-ac42u |\
+	asus,map-ac1300|\
+	asus,rt-ac42u|\
 	asus,rt-ac58u)
 		local ubidev=$(nand_find_ubi $CI_UBIPART)
 		local asus_root=$(nand_find_volume $ubidev jffs2)
@@ -20,6 +21,35 @@ to install the filesystem.
 
 You need to delete the jffs2 partition first:
 # ubirmvol /dev/ubi0 --name=jffs2
+
+Once this is done. Retry.
+EOF
+		return 1
+		;;
+	zte,mf18a|\
+	zte,mf282plus|\
+	zte,mf286d|\
+	zte,mf287|\
+	zte,mf287plus|\
+	zte,mf287pro|\
+	zte,mf289f)
+		CI_UBIPART="rootfs"
+		local mtdnum="$( find_mtd_index $CI_UBIPART )"
+		[ ! "$mtdnum" ] && return 1
+		ubiattach -m "$mtdnum" || true
+		local ubidev="$( nand_find_ubi $CI_UBIPART )"
+		local ubi_rootfs=$(nand_find_volume $ubidev ubi_rootfs)
+		local ubi_rootfs_data=$(nand_find_volume $ubidev ubi_rootfs_data)
+
+		[ -n "$ubi_rootfs" ] || [ -n "$ubi_rootfs_data" ] || return 0
+
+		cat << EOF
+ubi_rootfs partition is still present.
+
+You need to delete the stock partition first:
+# ubirmvol /dev/ubi0 -N ubi_rootfs
+Please also delete ubi_rootfs_data, if exist:
+# ubirmvol /dev/ubi0 -N ubi_rootfs_data
 
 Once this is done. Retry.
 EOF
@@ -75,32 +105,32 @@ platform_do_upgrade_mikrotik_nand() {
 
 platform_do_upgrade() {
 	case "$(board_name)" in
-	8dev,jalapeno |\
-	aruba,ap-303 |\
-	aruba,ap-303h |\
-	aruba,ap-365 |\
-	avm,fritzbox-7530 |\
-	avm,fritzrepeater-1200 |\
-	avm,fritzrepeater-3000 |\
-	buffalo,wtr-m2133hp |\
-	cilab,meshpoint-one |\
-	edgecore,ecw5211 |\
-	edgecore,oap100 |\
-	engenius,eap2200 |\
-	glinet,gl-ap1300 |\
-	luma,wrtq-329acn |\
-	mobipromo,cm520-79f |\
-	netgear,wac510 |\
-	p2w,r619ac-64m |\
-	p2w,r619ac-128m |\
-	qxwlan,e2600ac-c2)
+	8dev,jalapeno|\
+	aruba,ap-303|\
+	aruba,ap-303h|\
+	aruba,ap-365|\
+	avm,fritzbox-7530|\
+	avm,fritzrepeater-1200|\
+	avm,fritzrepeater-3000|\
+	buffalo,wtr-m2133hp|\
+	cilab,meshpoint-one|\
+	compex,wpj419|\
+	edgecore,ecw5211|\
+	edgecore,oap100|\
+	engenius,eap2200|\
+	glinet,gl-a1300|\
+	glinet,gl-ap1300|\
+	luma,wrtq-329acn|\
+	mobipromo,cm520-79f|\
+	netgear,lbr20|\
+	netgear,rbr20|\
+	netgear,rbs20|\
+	netgear,wac510|\
+	p2w,r619ac-64m|\
+	p2w,r619ac-128m|\
+	qxwlan,e2600ac-c2|\
+	wallys,dr40x9)
 		nand_do_upgrade "$1"
-		;;
-	glinet,gl-b2200)
-		CI_KERNPART="0:HLOS"
-		CI_ROOTPART="rootfs"
-		CI_DATAPART="rootfs_data"
-		emmc_do_upgrade "$1"
 		;;
 	alfa-network,ap120c-ac)
 		part="$(awk -F 'ubi.mtd=' '{printf $2}' /proc/cmdline | sed -e 's/ .*$//')"
@@ -113,11 +143,9 @@ platform_do_upgrade() {
 		fi
 		nand_do_upgrade "$1"
 		;;
-	asus,map-ac2200)
-		CI_KERNPART="linux"
-		nand_do_upgrade "$1"
-		;;
-	asus,rt-ac42u |\
+	asus,map-ac1300|\
+	asus,map-ac2200|\
+	asus,rt-ac42u|\
 	asus,rt-ac58u)
 		CI_KERNPART="linux"
 		nand_do_upgrade "$1"
@@ -126,42 +154,111 @@ platform_do_upgrade() {
 		CI_UBIPART="ubifs"
 		askey_do_upgrade "$1"
 		;;
-	compex,wpj419)
-		nand_do_upgrade "$1"
+	glinet,gl-b2200)
+		CI_KERNPART="0:HLOS"
+		CI_ROOTPART="rootfs"
+		CI_DATAPART="rootfs_data"
+		emmc_do_upgrade "$1"
 		;;
-	linksys,ea6350v3 |\
-	linksys,ea8300 |\
-	linksys,mr8300)
+	google,wifi)
+		export_bootdevice
+		export_partdevice CI_ROOTDEV 0
+		CI_KERNPART="kernel"
+		CI_ROOTPART="rootfs"
+		emmc_do_upgrade "$1"
+		;;
+	huawei,ap4050dn)
+		# Store beginning address of the "uboot" partition
+		# as KernelA address and KernelB address, each to ResultA & ResultB
+		# This is the address from which the bootloader will try to load the u-boot that we use as loader.
+		HUAWEI_AP4050DN_LOADADDR="\x00\x00\x70\x00\x00\x00\x70\x00"
+		echo -n -e $HUAWEI_AP4050DN_LOADADDR | dd of=$(find_mtd_part ResultA) bs=1 seek=$((0x4264)) conv=notrunc
+		echo -n -e $HUAWEI_AP4050DN_LOADADDR | dd of=$(find_mtd_part ResultA) bs=1 seek=$((0x40264)) conv=notrunc
+		echo -n -e $HUAWEI_AP4050DN_LOADADDR | dd of=$(find_mtd_part ResultB) bs=1 seek=$((0x4264)) conv=notrunc
+		default_do_upgrade "$1"
+		;;
+	linksys,ea6350v3|\
+	linksys,ea8300|\
+	linksys,mr6350|\
+	linksys,mr8300|\
+	linksys,mr9000|\
+	linksys,whw01|\
+	linksys,whw03v2)
 		platform_do_upgrade_linksys "$1"
 		;;
-	meraki,mr33)
+	linksys,whw03)
+		platform_do_upgrade_linksys_emmc "$1"
+		;;
+	meraki,mr20|\
+	meraki,mr70|\
+	meraki,gx20|\
+	meraki,z3|\
+	meraki,z3c)
+		# DO NOT set CI_KERNPART to part.safe,
+		# that is used for chain-loading an unlocked u-boot
+		# if part.safe is overwritten, then u-boot is lost!
+		CI_KERNPART="part.old"
+		nand_do_upgrade "$1"
+		;;
+	meraki,mr30h|\
+	meraki,mr33|\
+	meraki,mr74)
 		CI_KERNPART="part.safe"
 		nand_do_upgrade "$1"
 		;;
+	mikrotik,cap-ac|\
 	mikrotik,hap-ac2|\
+	mikrotik,hap-ac3-lte6-kit|\
 	mikrotik,lhgg-60ad|\
-	mikrotik,sxtsq-5-ac)
+	mikrotik,sxtsq-5-ac|\
+	mikrotik,wap-ac|\
+	mikrotik,wap-ac-lte|\
+	mikrotik,wap-r-ac)
 		[ "$(rootfs_type)" = "tmpfs" ] && mtd erase firmware
 		default_do_upgrade "$1"
 		;;
 	mikrotik,hap-ac3)
 		platform_do_upgrade_mikrotik_nand "$1"
 		;;
-	netgear,rbr50 |\
-	netgear,rbs50 |\
-	netgear,srr60 |\
+	netgear,rbr40|\
+	netgear,rbs40|\
+	netgear,rbr50|\
+	netgear,rbs50|\
+	netgear,srr60|\
 	netgear,srs60)
 		platform_do_upgrade_netgear_orbi_upgrade "$1"
 		;;
-	openmesh,a42 |\
-	openmesh,a62 |\
-	plasmacloud,pa1200 |\
+	openmesh,a42|\
+	openmesh,a62|\
+	plasmacloud,pa1200|\
 	plasmacloud,pa2200)
 		PART_NAME="inactive"
 		platform_do_upgrade_dualboot_datachk "$1"
 		;;
-	teltonika,rutx10)
+	sony,ncp-hg100-cellular)
+		sony_emmc_do_upgrade "$1"
+		;;
+	sophos,apx120)
 		CI_UBIPART="rootfs"
+		# Strip fwtool trailer for eraseblock alignment before ubiformat.
+		fwtool -q -t -i /dev/null "$1" || true
+		nand_do_upgrade "$1"
+		;;
+	teltonika,rutx10|\
+	teltonika,rutx50|\
+	zte,mf18a|\
+	zte,mf282plus|\
+	zte,mf286d|\
+	zte,mf287|\
+	zte,mf287plus|\
+	zte,mf287pro|\
+	zte,mf289f)
+		CI_UBIPART="rootfs"
+		nand_do_upgrade "$1"
+		;;
+	ubnt,utr)
+		CI_UBIPART="kernel1"
+		CI_KERNPART="vol"
 		nand_do_upgrade "$1"
 		;;
 	zyxel,nbg6617)
@@ -175,7 +272,9 @@ platform_do_upgrade() {
 
 platform_copy_config() {
 	case "$(board_name)" in
-	glinet,gl-b2200)
+	glinet,gl-b2200|\
+	google,wifi|\
+	linksys,whw03)
 		emmc_copy_config
 		;;
 	esac

@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later OR MIT
 
+#include <dt-bindings/leds/common.h>
+
 #include "ar9344_wd_mynet-nxxx.dtsi"
 
 / {
@@ -27,12 +29,14 @@
 		};
 
 		wps {
-			label = "blue:wps";
+			function = LED_FUNCTION_WPS;
+			color = <LED_COLOR_ID_BLUE>;
 			gpios = <&gpio 13 GPIO_ACTIVE_HIGH>;
 		};
 
 		led_power: power {
-			label = "blue:power";
+			function = LED_FUNCTION_POWER;
+			color = <LED_COLOR_ID_BLUE>;
 			gpios = <&gpio 14 GPIO_ACTIVE_HIGH>;
 		};
 	};
@@ -55,50 +59,29 @@
 &gpio {
 	gpio_ext_lna0 {
 		gpio-hog;
-		gpios = <15 0>;
+		gpios = <15 GPIO_ACTIVE_HIGH>;
 		output-high;
 		line-name = "ext:lna0";
 	};
 
 	gpio_ext_lna1 {
 		gpio-hog;
-		gpios = <18 0>;
+		gpios = <18 GPIO_ACTIVE_HIGH>;
 		output-high;
 		line-name = "ext:lna1";
 	};
 };
 
 &usb {
-	#address-cells = <1>;
-	#size-cells = <0>;
 	status = "okay";
-
-	port@1 {
-		#address-cells = <1>;
-		#size-cells = <0>;
-		reg = <1>;
-		#trigger-source-cells = <0>;
-
-		hub_port1: port@1 {
-			reg = <1>;
-			#trigger-source-cells = <0>;
-		};
-
-		hub_port2: port@2 {
-			reg = <2>;
-			#trigger-source-cells = <0>;
-		};
-	};
 };
 
 &mdio0 {
 	status = "okay";
 
-	phy-mask = <0>;
-
-	switch0@1f {
+	ethernet-switch@10 {
 		compatible = "qca,ar8327";
-		reg = <0x1f>;
+		reg = <0x10>;
 
 		qca,ar8327-initvals = <
 			0x04 0x07600000 /* PORT0 PAD MODE CTRL */

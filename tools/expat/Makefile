@@ -8,22 +8,29 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=expat
-PKG_CPE_ID:=cpe:/a:libexpat:expat
-PKG_VERSION:=2.2.10
+PKG_CPE_ID:=cpe:/a:libexpat_project:libexpat
+PKG_VERSION:=2.9.0
 
-PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.bz2
-PKG_HASH:=b2c160f1b60e92da69de8e12333096aeb0c3bf692d41c60794de278af72135a5
+PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
+PKG_HASH:=16afbb9cefead2aa278105cf27d9f597bde7fbf3dbb85015857ca7ca6a4e89ba
 PKG_SOURCE_URL:=https://github.com/libexpat/libexpat/releases/download/R_$(subst .,_,$(PKG_VERSION))
 
 HOST_BUILD_PARALLEL:=1
+HOST_CONFIGURE_CACHE:=1
 
 include $(INCLUDE_DIR)/host-build.mk
 
-HOST_CONFIGURE_ARGS += \
-	--without-docbook
+HOSTCC := $(HOSTCC_NOCACHE)
+HOSTCXX := $(HOSTCXX_NOCACHE)
 
-define Host/Install
-	$(MAKE) -C $(HOST_BUILD_DIR) install
+HOST_CONFIGURE_ARGS += \
+	--disable-shared \
+	--without-docbook \
+	--without-tests \
+	--with-pic
+
+define Host/Uninstall
+	-$(call Host/Compile/Default,uninstall)
 endef
 
 $(eval $(call HostBuild))

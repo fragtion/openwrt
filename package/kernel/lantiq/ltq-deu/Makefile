@@ -7,7 +7,7 @@ include $(TOPDIR)/rules.mk
 include $(INCLUDE_DIR)/kernel.mk
 
 PKG_NAME:=ltq-deu
-PKG_RELEASE:=$(AUTORELEASE)
+PKG_RELEASE:=46
 
 PKG_MAINTAINER:=John Crispin <john@phrozen.org>
 PKG_LICENSE:=GPL-2.0+
@@ -19,16 +19,15 @@ define KernelPackage/ltq-deu-template
   CATEGORY:=Kernel modules
   SUBMENU:=Cryptographic API modules
   TITLE:=deu driver for $(1)
-  URL:=http://www.lantiq.com/
   VARIANT:=$(1)
-  DEPENDS:=@TARGET_lantiq_$(2) +kmod-crypto-manager +kmod-crypto-des
+  DEPENDS:=@$(2) +kmod-crypto-manager +kmod-crypto-des
   FILES:=$(PKG_BUILD_DIR)/ltq_deu_$(1).ko
   AUTOLOAD:=$(call AutoProbe,ltq_deu_$(1))
 endef
 
-KernelPackage/ltq-deu-danube=$(call KernelPackage/ltq-deu-template,danube,xway)
-KernelPackage/ltq-deu-ar9=$(call KernelPackage/ltq-deu-template,ar9,xway)
-KernelPackage/ltq-deu-vr9=$(call KernelPackage/ltq-deu-template,vr9,xrx200)
+KernelPackage/ltq-deu-danube=$(call KernelPackage/ltq-deu-template,danube,TARGET_lantiq_xway)
+KernelPackage/ltq-deu-ar9=$(call KernelPackage/ltq-deu-template,ar9,TARGET_lantiq_xway)
+KernelPackage/ltq-deu-vr9=$(call KernelPackage/ltq-deu-template,vr9,(TARGET_lantiq_xrx200||TARGET_lantiq_xrx200_legacy))
 
 define Build/Configure
 endef
@@ -36,7 +35,7 @@ endef
 define Build/Compile
 	cd $(LINUX_DIR); \
 		ARCH=mips CROSS_COMPILE="$(KERNEL_CROSS)" \
-		$(MAKE) BUILD_VARIANT=$(BUILD_VARIANT) M=$(PKG_BUILD_DIR) V=1 modules
+		$(MAKE) $(KERNEL_MAKE_FLAGS) BUILD_VARIANT=$(BUILD_VARIANT) M=$(PKG_BUILD_DIR) V=1 modules
 endef
 
 $(eval $(call KernelPackage,ltq-deu-danube))

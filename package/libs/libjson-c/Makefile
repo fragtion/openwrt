@@ -8,17 +8,17 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=json-c
-PKG_VERSION:=0.15
-PKG_RELEASE:=2
+PKG_VERSION:=0.19
+PKG_RELEASE:=3
 
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION)-nodoc.tar.gz
-PKG_SOURCE_URL:=https://s3.amazonaws.com/json-c_releases/releases/
-PKG_HASH:=99bca4f944b8ced8ae0bbc6310d6a3528ca715e69541793a1ef51f8c5b4b0878
+PKG_SOURCE_URL:=https://github.com/json-c/json-c/releases/download/json-c-$(PKG_VERSION)-20260627
+PKG_HASH:=704927172443309a8efeb162060bb215548e1286e5568514007dd2cc35a0a164
 
 PKG_MAINTAINER:=Felix Fietkau <nbd@nbd.name>
 PKG_LICENSE:=MIT
 PKG_LICENSE_FILES:=COPYING
-PKG_CPE_ID:=cpe:/a:json-c_project:json-c
+PKG_CPE_ID:=cpe:/a:json-c:json-c
 
 HOST_BUILD_PREFIX:=$(STAGING_DIR_HOST)
 
@@ -27,7 +27,13 @@ include $(INCLUDE_DIR)/host-build.mk
 include $(INCLUDE_DIR)/cmake.mk
 
 CMAKE_HOST_OPTIONS += \
-	-DBUILD_SHARED_LIBS=FALSE
+	-DDISABLE_EXTRA_LIBS:BOOL=ON \
+	-DBUILD_SHARED_LIBS:BOOL=OFF \
+	-DBUILD_APPS:BOOL=OFF
+
+CMAKE_OPTIONS += \
+	-DDISABLE_EXTRA_LIBS:BOOL=ON \
+	-DBUILD_APPS:BOOL=OFF
 
 define Package/libjson-c
   SECTION:=libs

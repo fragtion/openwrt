@@ -8,13 +8,13 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=restool
-PKG_VERSION:=LSDK-21.08
-PKG_RELEASE:=$(AUTORELEASE)
+PKG_VERSION:=6.18.2.1.0.0
+PKG_RELEASE:=2
 
 PKG_SOURCE_PROTO:=git
-PKG_SOURCE_URL:=https://source.codeaurora.org/external/qoriq/qoriq-components/restool
-PKG_SOURCE_VERSION:=LSDK-21.08
-PKG_MIRROR_HASH:=d793defa2e4cf907bebe7761d88feb2ac94e0ecdaabdb3bbc9dda83a82046bc5
+PKG_SOURCE_URL:=https://github.com/nxp-qoriq/restool
+PKG_SOURCE_VERSION:=lf-6.18.2-1.0.0
+PKG_MIRROR_HASH:=d3e35b9e8e0db98aa52c0f48fba4b2c9c6e124a0d32e8bf36c208f9dfe3a8dc2
 
 PKG_FLAGS:=nonshared
 
@@ -27,7 +27,7 @@ define Package/restool
   DEPENDS:=@TARGET_layerscape_armv8_64b
 endef
 
-MAKE_FLAGS += \
+MAKE_FLAGS += MANPAGE="" \
 	DESTDIR="$(PKG_BUILD_DIR)"/output/ \
 	install
 

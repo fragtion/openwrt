@@ -199,23 +199,27 @@ mtdsplit_fit_parse(struct mtd_info *mtd,
 	struct fdt_header hdr;
 	size_t hdr_len, retlen;
 	size_t offset;
+	u32 offset_start = 0;
 	size_t fit_offset, fit_size;
 	size_t rootfs_offset, rootfs_size;
 	size_t data_size, img_total, max_size = 0;
 	struct mtd_partition *parts;
 	int ret, ndepth, noffset, images_noffset;
 	const void *img_data;
+	bool found_fit = false;
 	void *fit;
 
 	of_property_read_string(np, "openwrt,cmdline-match", &cmdline_match);
 	if (cmdline_match && !strstr(saved_command_line, cmdline_match))
-		return -ENODEV;
+		return -ENOENT;
+
+	of_property_read_u32(np, "openwrt,fit-offset", &offset_start);
 
 	hdr_len = sizeof(struct fdt_header);
 
 	/* Parse the MTD device & search for the FIT image location */
-	for(offset = 0; offset + hdr_len <= mtd->size; offset += mtd->erasesize) {
-		ret = mtd_read(mtd, offset, hdr_len, &retlen, (void*) &hdr);
+	for (offset = 0; offset + offset_start + hdr_len <= mtd->size; offset += mtd->erasesize) {
+		ret = mtd_read(mtd, offset + offset_start, hdr_len, &retlen, (void*) &hdr);
 		if (ret) {
 			pr_err("read error in \"%s\" at offset 0x%llx\n",
 			       mtd->name, (unsigned long long) offset);
@@ -235,7 +239,13 @@ mtdsplit_fit_parse(struct mtd_info *mtd,
 		}
 
 		/* We found a FIT image. Let's keep going */
+		found_fit = true;
 		break;
+	}
+
+	if (!found_fit) {
+		pr_info("No FIT image found in \"%s\"\n", mtd->name);
+		return -ENOENT;
 	}
 
 	fit_offset = offset;
@@ -244,7 +254,7 @@ mtdsplit_fit_parse(struct mtd_info *mtd,
 	if (fit_size == 0) {
 		pr_err("FIT image in \"%s\" at offset %llx has null size\n",
 		       mtd->name, (unsigned long long) fit_offset);
-		return -ENODEV;
+		return -ENOENT;
 	}
 
 	/*
@@ -255,10 +265,12 @@ mtdsplit_fit_parse(struct mtd_info *mtd,
 	 * hence we need to parse FDT structure to find the end of the
 	 * last external data refernced.
 	 */
-	if (fit_size > 0x1000) {
+	if (fit_size > 0x80000) {
+		enum mtdsplit_part_type type;
+
 		/* Search for the rootfs partition after the FIT image */
-		ret = mtd_find_rootfs_from(mtd, fit_offset + fit_size, mtd->size,
-					   &rootfs_offset, NULL);
+		ret = mtd_find_rootfs_from(mtd, fit_offset + fit_size + offset_start, mtd->size,
+					   &rootfs_offset, &type);
 		if (ret) {
 			pr_info("no rootfs found after FIT image in \"%s\"\n",
 				mtd->name);
@@ -267,15 +279,18 @@ mtdsplit_fit_parse(struct mtd_info *mtd,
 
 		rootfs_size = mtd->size - rootfs_offset;
 
-		parts = kzalloc(2 * sizeof(*parts), GFP_KERNEL);
+		parts = kcalloc(2, sizeof(*parts), GFP_KERNEL);
 		if (!parts)
 			return -ENOMEM;
 
 		parts[0].name = KERNEL_PART_NAME;
 		parts[0].offset = fit_offset;
-		parts[0].size = mtd_rounddown_to_eb(fit_size, mtd) + mtd->erasesize;
+		parts[0].size = mtd_roundup_to_eb(fit_size + offset_start, mtd);
 
-		parts[1].name = ROOTFS_PART_NAME;
+		if (type == MTDSPLIT_PART_TYPE_UBI)
+			parts[1].name = UBI_PART_NAME;
+		else
+			parts[1].name = ROOTFS_PART_NAME;
 		parts[1].offset = rootfs_offset;
 		parts[1].size = rootfs_size;
 
@@ -285,7 +300,7 @@ mtdsplit_fit_parse(struct mtd_info *mtd,
 	} else {
 		/* Search for rootfs_data after FIT external data */
 		fit = kzalloc(fit_size, GFP_KERNEL);
-		ret = mtd_read(mtd, offset, fit_size, &retlen, fit);
+		ret = mtd_read(mtd, offset, fit_size + offset_start, &retlen, fit);
 		if (ret) {
 			pr_err("read error in \"%s\" at offset 0x%llx\n",
 			       mtd->name, (unsigned long long) offset);
@@ -296,7 +311,7 @@ mtdsplit_fit_parse(struct mtd_info *mtd,
 		if (images_noffset < 0) {
 			pr_err("Can't find images parent node '%s' (%s)\n",
 			FIT_IMAGES_PATH, fdt_strerror(images_noffset));
-			return -ENODEV;
+			return -ENOENT;
 		}
 
 		for (ndepth = 0,
@@ -319,7 +334,7 @@ mtdsplit_fit_parse(struct mtd_info *mtd,
 			return -ENOMEM;
 
 		parts[0].name = ROOTFS_SPLIT_NAME;
-		parts[0].offset = fit_offset + mtd_rounddown_to_eb(max_size, mtd) + mtd->erasesize;
+		parts[0].offset = fit_offset + mtd_roundup_to_eb(max_size, mtd);
 		parts[0].size = mtd->size - parts[0].offset;
 
 		*pparts = parts;
@@ -343,15 +358,4 @@ static struct mtd_part_parser uimage_parser = {
 	.type = MTD_PARSER_TYPE_FIRMWARE,
 };
 
-/**************************************************
- * Init
- **************************************************/
-
-static int __init mtdsplit_fit_init(void)
-{
-	register_mtd_parser(&uimage_parser);
-
-	return 0;
-}
-
-module_init(mtdsplit_fit_init);
+module_mtd_part_parser(uimage_parser);

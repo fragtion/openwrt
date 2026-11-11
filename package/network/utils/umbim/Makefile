@@ -1,19 +1,20 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=umbim
-PKG_RELEASE:=$(AUTORELEASE)
+PKG_RELEASE:=1
 
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL=$(PROJECT_GIT)/project/umbim.git
-PKG_SOURCE_DATE:=2021-08-18
-PKG_SOURCE_VERSION:=de5623104baee6e0c13c92f05c15bf4b4145c0b1
-PKG_MIRROR_HASH:=2d4a75d2b53c8413521a2fd138895e327bff3f4b4d29a540342b2d2e1e009852
+PKG_SOURCE_DATE:=2025-10-04
+PKG_SOURCE_VERSION:=2939b7d019abc2be0b77eda95f66a28128cadafb
+PKG_MIRROR_HASH:=6ffee42dbde6d73fde1aef80b6ef14074fbf1a2e8d86a1cce487db09b4ba3cab
 PKG_MAINTAINER:=John Crispin <john@phrozen.org>
 
 PKG_LICENSE:=GPL-2.0
 PKG_LICENSE_FILES:=
 
 PKG_FLAGS:=nonshared
+PKG_BUILD_FLAGS:=gc-sections
 
 include $(INCLUDE_DIR)/package.mk
 include $(INCLUDE_DIR)/cmake.mk
@@ -32,9 +33,7 @@ define Package/umbim/description
 endef
 
 TARGET_CFLAGS += \
-	-I$(STAGING_DIR)/usr/include -ffunction-sections -fdata-sections
-
-TARGET_LDFLAGS += -Wl,--gc-sections
+	-I$(STAGING_DIR)/usr/include
 
 define Package/umbim/install
 	$(INSTALL_DIR) $(1)/sbin

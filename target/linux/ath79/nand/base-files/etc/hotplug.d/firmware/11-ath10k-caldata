@@ -9,26 +9,11 @@ board=$(board_name)
 case "$FIRMWARE" in
 "ath10k/cal-pci-0000:00:00.0.bin")
 	case $board in
-	domywifi,dw33d)
+	glinet,gl-e750)
+		# V1 radios carry their calibration in EEPROM and art is
+		# empty at this offset; V2 radios need the copy from art.
 		caldata_extract "art" 0x5000 0x844
-		ath10k_patch_mac $(mtd_get_mac_binary art 0x12)
-		;;
-	dongwon,dw02-412h-64m|\
-	dongwon,dw02-412h-128m)
-		caldata_extract "art" 0x5000 0x844
-		ath10k_patch_mac $(macaddr_add $(mtd_get_mac_binary art 0x0) 4)
-		;;
-	glinet,gl-ar750s-nor|\
-	glinet,gl-ar750s-nor-nand)
-		caldata_extract "art" 0x5000 0x844
-		ath10k_patch_mac $(macaddr_add $(mtd_get_mac_binary art 0x0) 1)
-		;;
-	netgear,r6100)
-		caldata_extract "caldata" 0x5000 0x844
-		;;
-	zyxel,nbg6716)
-		caldata_extract "art" 0x5000 0x844
-		ath10k_patch_mac $(macaddr_add $(mtd_get_mac_ascii u-boot-env ethaddr) 1)
+		caldata_valid "4408" || rm -f /lib/firmware/$FIRMWARE
 		;;
 	esac
 	;;

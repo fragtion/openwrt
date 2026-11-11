@@ -6,11 +6,11 @@ include $(TOPDIR)/rules.mk
 
 ARCH:=arm
 BOARD:=sunxi
-BOARDNAME:=Allwinner A1x/A20/A3x/H3/H5/R40
-FEATURES:=fpu usb ext4 display rootfs-part rtc squashfs
-SUBTARGETS:=cortexa8 cortexa7 cortexa53
+BOARDNAME:=Allwinner ARM SoCs
+FEATURES:=ext4 legacy-sdcard ramdisk rootfs-part rtc squashfs usb usbgadget
+SUBTARGETS:=cortexa8 cortexa7 cortexa53 arm926ejs
 
-KERNEL_PATCHVER:=5.10
+KERNEL_PATCHVER:=6.18
 
 KERNELNAME:=zImage dtbs
 
@@ -21,10 +21,12 @@ KERNELNAME:=zImage dtbs
 # A80: octa Cortex-A15/A7
 # H3: quad Cortex-A7
 # R40: quad Cortex-A7
+# A64/H5/H6/H616: quad Cortex-A53
 
 include $(INCLUDE_DIR)/target.mk
 
 DEFAULT_PACKAGES += uboot-envtools
-DEFAULT_PACKAGES += partx-utils mkf2fs e2fsprogs
+DEFAULT_PACKAGES += mkf2fs e2fsprogs
+DEFAULT_PACKAGES += video-support
 
 $(eval $(call BuildTarget))

@@ -3,11 +3,11 @@ include $(INCLUDE_DIR)/kernel.mk
 
 PKG_NAME:=nat46
 
-PKG_MIRROR_HASH:=1476da31996e26ef76e2ba9623d978d33002abf357a59323d9b539812b0a4b76
+PKG_MIRROR_HASH:=5d5c14bbb700490a9357c2c8baffd52615f3b572f82eb2fcbfc530bd23f2cdc3
 PKG_SOURCE_URL:=https://github.com/ayourtch/nat46.git
-PKG_SOURCE_DATE:=2021-11-24
+PKG_SOURCE_DATE:=2025-11-04
 PKG_SOURCE_PROTO:=git
-PKG_SOURCE_VERSION:=d9bc161faa4c18ad1d327a96baa2dc4460b71ccd
+PKG_SOURCE_VERSION:=adb2f72e6fb81ee11b54513d384b68e3c3d93464
 
 PKG_MAINTAINER:=Hans Dedecker <dedeckeh@gmail.com>
 PKG_LICENSE:=GPL-2.0
@@ -15,7 +15,7 @@ PKG_LICENSE:=GPL-2.0
 include $(INCLUDE_DIR)/package.mk
 
 define KernelPackage/nat46
-  DEPENDS:=@IPV6
+  DEPENDS:=@IPV6 +kmod-nf-conntrack
   TITLE:=Stateless NAT46 translation kernel module
   SECTION:=kernel
   SUBMENU:=Network Support
@@ -28,7 +28,7 @@ include $(INCLUDE_DIR)/kernel-defaults.mk
 define Build/Compile
 	$(KERNEL_MAKE) M="$(PKG_BUILD_DIR)/nat46/modules" \
 		MODFLAGS="-DMODULE -mlong-calls" \
-		EXTRA_CFLAGS="-DNAT46_VERSION=\\\"$(PKG_SOURCE_VERSION)\\\"" \
+		CFLAGS_MODULE="-DNAT46_VERSION=\\\"$(PKG_SOURCE_VERSION)\\\"" \
 		modules
 endef
 

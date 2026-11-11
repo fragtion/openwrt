@@ -8,24 +8,55 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=gettext-full
-PKG_VERSION:=0.21
-PKG_RELEASE:=2
+PKG_VERSION:=0.24.2
+PKG_RELEASE:=1
 
 PKG_SOURCE:=gettext-$(PKG_VERSION).tar.xz
 PKG_SOURCE_URL:=@GNU/gettext
-PKG_HASH:=d20fcbb537e02dcf1383197ba05bd0734ef7bf5db06bdb241eb69b7d16b73192
+PKG_HASH:=fcc0187f597aef6bc5bc95c629db1126315beb196b20570eaec6a4941850f7c5
 PKG_BUILD_DIR:=$(BUILD_DIR)/gettext-$(PKG_VERSION)
 HOST_BUILD_DIR:=$(BUILD_DIR_HOST)/gettext-$(PKG_VERSION)
 
 PKG_MAINTAINER:=Jo-Philipp Wich <jo@mein.io>
-PKG_LICENSE:=GPL-3.0-or-later
+PKG_LICENSE:=LGPL-2.1-or-later
+PKG_LICENSE_FILES:=gettext-runtime/intl/COPYING.LIB
 PKG_CPE_ID:=cpe:/a:gnu:gettext
 
-PKG_FIXUP:=autoreconf
 PKG_INSTALL:=1
-PKG_BUILD_DEPENDS:=gettext-full/host
-PKG_BUILD_PARALLEL:=0
-HOST_BUILD_PARALLEL:=0
+PKG_BUILD_DEPENDS:=gettext-full/host libunistring libxml2
+PKG_BUILD_PARALLEL:=1
+
+HOST_BUILD_DEPENDS:=gnulib-l10n/host gperf/host libiconv-full/host libunistring/host libxml2/host
+HOST_BUILD_PARALLEL:=1
+
+PKG_SUBDIRS:= \
+	$$$$(foreach dir, \
+		intl \
+		intl-csharp \
+		intl-java \
+		its \
+		gnulib-lib \
+		gnulib-local \
+		lib \
+		$$$$(SUBDIR_libasprintf) \
+		libgettextpo \
+		libgrep \
+		libtextstyle \
+		m4 \
+		misc \
+		po \
+		projects \
+		src \
+		styles \
+		gettext-runtime \
+		gettext-tools \
+	,$$$$(wildcard $$$$(dir)) )
+
+PKG_MAKEFILES_FAKE:= \
+	gnulib-local/m4/Makefile \
+	libtextstyle/gnulib-local/Makefile \
+	libtextstyle/m4/Makefile \
+	m4/Makefile
 
 include $(INCLUDE_DIR)/package.mk
 include $(INCLUDE_DIR)/host-build.mk
@@ -34,11 +65,15 @@ define Package/libintl-full
   SECTION:=libs
   CATEGORY:=Libraries
   TITLE:=GNU Internationalization library
-  URL:=http://www.gnu.org/software/gettext/
+  DEPENDS:=+libunistring +libxml2
+  URL:=https://www.gnu.org/software/gettext/
   ABI_VERSION:=8
 endef
 
+export GNULIB_SRCDIR:=$(HOST_GNULIB_SRCDIR)
+
 TARGET_CFLAGS += $(FPIC)
+TARGET_CFLAGS += -std=gnu23
 ifneq ($(HOST_OS),Linux)
   TARGET_CFLAGS += -I$(STAGING_DIR_HOSTPKG)/include
 endif
@@ -55,6 +90,8 @@ CONFIGURE_ARGS += \
 	--with-included-gettext \
 	--without-libintl-prefix \
 	--without-libexpat-prefix \
+	--with-libunistring-prefix=$(STAGING_DIR)/usr \
+	--with-libxml2-prefix=$(STAGING_DIR) \
 	--without-emacs
 
 HOST_CONFIGURE_ARGS += \
@@ -65,15 +102,60 @@ HOST_CONFIGURE_ARGS += \
 	--disable-java \
 	--disable-openmp \
 	--without-emacs \
-	--without-libxml2-prefix
+	--with-libiconv-prefix=$(STAGING_DIR_HOSTPKG) \
+	--with-libunistring-prefix=$(STAGING_DIR_HOSTPKG) \
+	--with-libxml2-prefix=$(STAGING_DIR_HOSTPKG)
 
 HOST_CONFIGURE_VARS += \
 	EMACS="no" \
-	am_cv_lib_iconv=no \
-	am_cv_func_iconv=no \
-	ac_cv_header_iconv_h=no \
 
 HOST_CFLAGS += $(HOST_FPIC)
+
+define Host/Bootstrap
+	( \
+		cd $(HOST_BUILD_DIR); \
+		$(AM_TOOL_PATHS) \
+		./autogen.sh \
+	)
+endef
+
+define Host/Prepare
+	$(call Host/Prepare/Default)
+	$(if $(QUILT),,$(call Host/Bootstrap))
+endef
+
+define Host/Configure
+	$(if $(QUILT),$(call Host/Bootstrap))
+	$(call Host/Configure/Default)
+endef
+
+define Host/Compile
+	$(foreach makefile,$(PKG_MAKEFILES_FAKE),printf '%s\n%s\n' 'all:' 'install:' > $(HOST_BUILD_DIR)/$(makefile); )
+	$(call Host/Compile/Default,SUBDIRS='$(PKG_SUBDIRS)')
+endef
+
+define Build/Bootstrap
+	( \
+		cd $(PKG_BUILD_DIR); \
+		$(AM_TOOL_PATHS) \
+		./autogen.sh \
+	)
+endef
+
+define Build/Prepare
+	$(call Build/Prepare/Default)
+	$(if $(QUILT),,$(call Build/Bootstrap))
+endef
+
+define Build/Configure
+	$(if $(QUILT),$(call Build/Bootstrap))
+	$(call Build/Configure/Default)
+endef
+
+define Build/Compile
+	$(foreach makefile,$(PKG_MAKEFILES_FAKE),printf '%s\n%s\n' 'all:' 'install:' > $(PKG_BUILD_DIR)/$(makefile); )
+	$(call Build/Compile/Default,SUBDIRS='$(PKG_SUBDIRS)')
+endef
 
 define Build/InstallDev
 	$(INSTALL_DIR) $(1)/usr/lib/libintl-full/include
@@ -82,10 +164,19 @@ define Build/InstallDev
 	$(INSTALL_DIR) $(1)/usr/lib/libintl-full/lib
 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libintl.{a,so*} $(1)/usr/lib/libintl-full/lib/
 
-	$(INSTALL_DIR) $(1)/usr/share/aclocal
-	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/aclocal/* $(1)/usr/share/aclocal/
+	$(INSTALL_DIR) $(1)/usr/share/gettext/m4
+	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/gettext/m4/* $(1)/usr/share/gettext/m4/
 
 	$(SED) '/read dummy/d' $(STAGING_DIR_HOSTPKG)/bin/gettextize
+endef
+
+define Host/Install
+	$(call Host/Compile/Default,install SUBDIRS='$(PKG_SUBDIRS)')
+	$(LN) msgfmt $(STAGING_DIR_HOSTPKG)/bin/gmsgfmt
+endef
+
+define Build/Install
+	$(call Build/Install/Default,install SUBDIRS='$(PKG_SUBDIRS)')
 endef
 
 define Package/libintl-full/install

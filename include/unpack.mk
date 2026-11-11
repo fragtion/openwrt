@@ -18,7 +18,7 @@ ifeq ($(strip $(UNPACK_CMD)),)
 
     ifeq ($(filter gz tgz,$(EXT)),$(EXT))
       EXT:=$(call ext,$(PKG_SOURCE:.$(EXT)=))
-      DECOMPRESS_CMD:=gzip -dc $(DL_DIR)/$(PKG_SOURCE) |
+      DECOMPRESS_CMD:=$(STAGING_DIR_HOST)/bin/libdeflate-gzip -dc $(DL_DIR)/$(PKG_SOURCE) |
     endif
     ifeq ($(filter bzip2 bz2 bz tbz2 tbz,$(EXT)),$(EXT))
       EXT:=$(call ext,$(PKG_SOURCE:.$(EXT)=))
@@ -56,7 +56,7 @@ ifeq ($(strip $(UNPACK_CMD)),)
     endif
     # replace zcat with $(ZCAT), because some system don't support it properly
     ifeq ($(PKG_CAT),zcat)
-      UNPACK_CMD=gzip -dc $(DL_DIR)/$(PKG_SOURCE) | $(TAR_CMD)
+      UNPACK_CMD=$(STAGING_DIR_HOST)/bin/libdeflate-gzip -dc $(DL_DIR)/$(PKG_SOURCE) | $(TAR_CMD)
     endif
   endif
 endif
@@ -69,4 +69,19 @@ ifdef HOST_BUILD_DIR
 endif
 
 endif # PKG_SOURCE
+
+GIT_SRC_CHECKOUT_DIR = $(wildcard $(TOPDIR)/git-src/$(PKG_NAME)/.git)
+GIT_TREE_OVERRIDE_DIR = $(if $(CONFIG_SRC_TREE_OVERRIDE),$(wildcard ./git-src))
+
+# $1=build directory, $2=.git directory to link into it
+define Prepare/git-src
+	mkdir -p $(1)
+	ln -s $(2) $(1)/.git
+	( cd $(1); \
+		git checkout .; \
+		git submodule update --recursive; \
+		git submodule foreach git config --unset core.worktree; \
+		git submodule foreach git checkout .; \
+	)
+endef
 

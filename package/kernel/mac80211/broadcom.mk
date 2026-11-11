@@ -1,5 +1,5 @@
 PKG_DRIVERS += \
-	b43 b43legacy brcmsmac brcmfmac brcmutil
+	b43 brcmsmac brcmfmac brcmutil
 
 PKG_CONFIG_DEPENDS += \
 	CONFIG_PACKAGE_B43_DEBUG \
@@ -24,9 +24,6 @@ config-$(CONFIG_PACKAGE_B43_PHY_HT) += B43_PHY_HT
 config-$(CONFIG_PACKAGE_B43_PIO) += B43_PIO
 config-$(CONFIG_PACKAGE_B43_DEBUG) += B43_DEBUG
 
-config-$(call config_package,b43legacy) += B43LEGACY
-config-y += B43LEGACY_DMA_MODE
-
 config-$(call config_package,brcmutil) += BRCMUTIL
 config-$(call config_package,brcmsmac) += BRCMSMAC
 config-$(call config_package,brcmfmac) += BRCMFMAC
@@ -38,14 +35,6 @@ config-$(CONFIG_PACKAGE_BRCM80211_DEBUG) += BRCMDBG
 config-$(CONFIG_LEDS_TRIGGERS) += B43_LEDS B43LEGACY_LEDS
 
 #Broadcom firmware
-ifneq ($(CONFIG_B43_FW_6_30),)
-  PKG_B43_FWV4_NAME:=broadcom-wl
-  PKG_B43_FWV4_VERSION:=6.30.163.46
-  PKG_B43_FWV4_OBJECT:=$(PKG_B43_FWV4_NAME)-$(PKG_B43_FWV4_VERSION).wl_apsta.o
-  PKG_B43_FWV4_SOURCE:=$(PKG_B43_FWV4_NAME)-$(PKG_B43_FWV4_VERSION).tar.bz2
-  PKG_B43_FWV4_SOURCE_URL:=http://www.lwfinger.com/b43-firmware/
-  PKG_B43_FWV4_HASH:=a07c3b6b277833c7dbe61daa511f908cd66c5e2763eb7a0859abc36cd9335c2d
-else
 ifneq ($(CONFIG_B43_FW_5_10),)
   PKG_B43_FWV4_NAME:=broadcom-wl
   PKG_B43_FWV4_VERSION:=5.10.56.27.3
@@ -67,7 +56,7 @@ ifneq ($(CONFIG_B43_FW_5_100_138),)
   PKG_B43_FWV4_VERSION:=5.100.138
   PKG_B43_FWV4_OBJECT:=$(PKG_B43_FWV4_NAME)-$(PKG_B43_FWV4_VERSION)/linux/wl_apsta.o
   PKG_B43_FWV4_SOURCE:=$(PKG_B43_FWV4_NAME)-$(PKG_B43_FWV4_VERSION).tar.bz2
-  PKG_B43_FWV4_SOURCE_URL:=http://www.lwfinger.com/b43-firmware/
+  PKG_B43_FWV4_SOURCE_URL:=@OPENWRT
   PKG_B43_FWV4_HASH:=f1e7067aac5b62b67b8b6e4c517990277804339ac16065eb13c731ff909ae46f
 else
   PKG_B43_FWV4_NAME:=broadcom-wl
@@ -76,7 +65,6 @@ else
   PKG_B43_FWV4_SOURCE:=$(PKG_B43_FWV4_NAME)-$(PKG_B43_FWV4_VERSION).tar.bz2
   PKG_B43_FWV4_SOURCE_URL:=@OPENWRT
   PKG_B43_FWV4_HASH:=a9f4e276a4d8d3a1cd0f2eb87080ae89b77f0a7140f06d4e9e2135fc44fdd533
-endif
 endif
 endif
 endif
@@ -118,7 +106,7 @@ define KernelPackage/b43/config
 config PACKAGE_B43_USE_SSB
 	select PACKAGE_kmod-ssb
 	tristate
-	depends on !TARGET_bcm47xx && !TARGET_bcm63xx
+	depends on !TARGET_bcm47xx
 	default PACKAGE_kmod-b43 if PACKAGE_B43_BUSES_BCMA_AND_SSB
 	default PACKAGE_kmod-b43 if PACKAGE_B43_BUSES_SSB
 
@@ -166,15 +154,6 @@ config PACKAGE_B43_USE_BCMA
 		  This firmware currently gets most of the testing and is needed for some N-PHY devices.
 
 		  If unsure, select the this firmware.
-
-	config B43_FW_6_30
-		bool "Firmware 784.2 from driver 6.30.163.46 (experimental)"
-		help
-		  Newer experimental firmware for BCM43xx devices.
-
-		  This firmware is mostly untested.
-
-		  If unsure, select the "stable" firmware.
 
 	config B43_OPENFIRMWARE
 		bool "Open FirmWare for WiFi networks"
@@ -248,11 +227,11 @@ config PACKAGE_B43_USE_BCMA
 		  This allows choosing buses that b43 should support.
 
 	config PACKAGE_B43_BUSES_BCMA_AND_SSB
-		depends on !TARGET_bcm47xx_legacy && !TARGET_bcm47xx_mips74k && !TARGET_bcm53xx
+		depends on !TARGET_bcm47xx_legacy && !TARGET_bcm47xx_mips74k && !TARGET_bcm53xx && !TARGET_bmips
 		bool "BCMA and SSB"
 
 	config PACKAGE_B43_BUSES_BCMA
-		depends on !TARGET_bcm47xx_legacy
+		depends on !TARGET_bcm47xx_legacy && !TARGET_bmips_bcm6358 && !TARGET_bmips_bcm6368
 		bool "BCMA only"
 
 	config PACKAGE_B43_BUSES_SSB
@@ -341,23 +320,6 @@ define KernelPackage/b43/description
 Kernel module for Broadcom 43xx wireless support (mac80211 stack) new
 endef
 
-define KernelPackage/b43legacy
-  $(call KernelPackage/mac80211/Default)
-  TITLE:=Broadcom 43xx-legacy wireless support
-  URL:=https://wireless.wiki.kernel.org/en/users/drivers/b43
-  KCONFIG:= \
-  	CONFIG_HW_RANDOM=y
-  DEPENDS+= +kmod-mac80211 +!(TARGET_bcm47xx||TARGET_bcm63xx):kmod-ssb @!TARGET_bcm47xx_mips74k +b43legacy-firmware
-  FILES:=$(PKG_BUILD_DIR)/drivers/net/wireless/broadcom/b43legacy/b43legacy.ko
-  AUTOLOAD:=$(call AutoProbe,b43legacy)
-  MENU:=1
-endef
-
-define KernelPackage/b43legacy/description
-Kernel module for Broadcom 43xx-legacy wireless support (mac80211 stack) new
-endef
-
-
 define KernelPackage/brcmutil
   $(call KernelPackage/mac80211/Default)
   TITLE:=Broadcom IEEE802.11n common driver parts
@@ -387,7 +349,7 @@ PKG_BRCMSMAC_FW_NAME:=broadcom-wl
 PKG_BRCMSMAC_FW_VERSION:=5.100.138
 PKG_BRCMSMAC_FW_OBJECT:=$(PKG_BRCMSMAC_FW_NAME)-$(PKG_BRCMSMAC_FW_VERSION)/linux/wl_apsta.o
 PKG_BRCMSMAC_FW_SOURCE:=$(PKG_BRCMSMAC_FW_NAME)-$(PKG_BRCMSMAC_FW_VERSION).tar.bz2
-PKG_BRCMSMAC_FW_SOURCE_URL:=http://www.lwfinger.com/b43-firmware/
+PKG_BRCMSMAC_FW_SOURCE_URL:=@OPENWRT
 PKG_BRCMSMAC_FW_HASH:=f1e7067aac5b62b67b8b6e4c517990277804339ac16065eb13c731ff909ae46f
 
 define Download/brcmsmac
@@ -401,7 +363,7 @@ define KernelPackage/brcmsmac
   $(call KernelPackage/mac80211/Default)
   TITLE:=Broadcom IEEE802.11n PCIe SoftMAC WLAN driver
   URL:=https://wireless.wiki.kernel.org/en/users/drivers/brcm80211
-  DEPENDS+= +kmod-mac80211 +@DRIVER_11N_SUPPORT +!TARGET_bcm47xx:kmod-bcma +kmod-lib-cordic +kmod-lib-crc8 +kmod-brcmutil +!BRCMSMAC_USE_FW_FROM_WL:brcmsmac-firmware
+  DEPENDS+=@!TARGET_bcm47xx_legacy +kmod-mac80211 +!TARGET_bcm47xx:kmod-bcma +kmod-lib-cordic +kmod-lib-crc8 +kmod-brcmutil +!BRCMSMAC_USE_FW_FROM_WL:brcmsmac-firmware
   FILES:=$(PKG_BUILD_DIR)/drivers/net/wireless/broadcom/brcm80211/brcmsmac/brcmsmac.ko
   AUTOLOAD:=$(call AutoProbe,brcmsmac)
   MENU:=1
@@ -433,10 +395,13 @@ define KernelPackage/brcmfmac
   $(call KernelPackage/mac80211/Default)
   TITLE:=Broadcom IEEE802.11n USB FullMAC WLAN driver
   URL:=https://wireless.wiki.kernel.org/en/users/drivers/brcm80211
-  DEPENDS+= @USB_SUPPORT +kmod-cfg80211 +@DRIVER_11N_SUPPORT +@DRIVER_11AC_SUPPORT \
+  DEPENDS+= @USB_SUPPORT +kmod-cfg80211 +@DRIVER_11AC_SUPPORT \
   	+kmod-brcmutil +BRCMFMAC_SDIO:kmod-mmc @!TARGET_uml \
 	+BRCMFMAC_USB:kmod-usb-core +BRCMFMAC_USB:brcmfmac-firmware-usb
-  FILES:=$(PKG_BUILD_DIR)/drivers/net/wireless/broadcom/brcm80211/brcmfmac/brcmfmac.ko
+  FILES:= \
+	$(PKG_BUILD_DIR)/drivers/net/wireless/broadcom/brcm80211/brcmfmac/brcmfmac.ko \
+	$(foreach type,bca cyw wcc, \
+		$(PKG_BUILD_DIR)/drivers/net/wireless/broadcom/brcm80211/brcmfmac/$(type)/brcmfmac-$(type).ko)
   AUTOLOAD:=$(call AutoProbe,brcmfmac)
 endef
 
@@ -450,7 +415,12 @@ define KernelPackage/brcmfmac/config
 	config BRCMFMAC_SDIO
 		bool "Enable SDIO bus interface support"
 		default y if TARGET_bcm27xx
+		default y if TARGET_imx_cortexa7
+		default y if TARGET_starfive
+		default y if TARGET_rockchip
 		default y if TARGET_sunxi
+		default y if TARGET_stm32
+		default y if TARGET_x86
 		default n
 		help
 		  Enable support for cards attached to an SDIO bus.

@@ -11,7 +11,6 @@
 
 	aliases {
 		mdio-gpio1 = &mdio2;
-		serial0 = &uart;
 	};
 
 	keys {
@@ -83,7 +82,7 @@
 					read-only;
 				};
 
-				hard_config: hard_config {
+				hard_config {
 					read-only;
 				};
 
@@ -99,7 +98,6 @@
 				};
 
 				soft_config {
-					label = "soft_config";
 				};
 			};
 

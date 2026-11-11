@@ -10,7 +10,7 @@ define KernelPackage/irqbypass
   KCONFIG:=CONFIG_IRQ_BYPASS_MANAGER
   HIDDEN:=1
   FILES:= $(LINUX_DIR)/virt/lib/irqbypass.ko
-  AUTOLOAD:=$(call AutoProbe,irqbypass.ko)
+  AUTOLOAD:=$(call AutoProbe,irqbypass)
 endef
 $(eval $(call KernelPackage,irqbypass))
 
@@ -21,10 +21,10 @@ define KernelPackage/kvm-x86
   DEPENDS:=@TARGET_x86_generic||TARGET_x86_64 +kmod-irqbypass
   KCONFIG:=\
 	  CONFIG_KVM \
-	  CONFIG_KVM_MMU_AUDIT=n \
+	  CONFIG_KVM_SMM=y \
 	  CONFIG_VIRTUALIZATION=y
   FILES:= $(LINUX_DIR)/arch/$(LINUX_KARCH)/kvm/kvm.ko
-  AUTOLOAD:=$(call AutoProbe,kvm.ko)
+  AUTOLOAD:=$(call AutoProbe,kvm)
 endef
 
 define KernelPackage/kvm-x86/description
@@ -46,7 +46,7 @@ define KernelPackage/kvm-intel
   DEPENDS:=+kmod-kvm-x86
   KCONFIG:=CONFIG_KVM_INTEL
   FILES:= $(LINUX_DIR)/arch/$(LINUX_KARCH)/kvm/kvm-intel.ko
-  AUTOLOAD:=$(call AutoProbe,kvm-intel.ko)
+  AUTOLOAD:=$(call AutoProbe,kvm-intel)
 endef
 
 define KernelPackage/kvm-intel/description
@@ -63,7 +63,7 @@ define KernelPackage/kvm-amd
   DEPENDS:=+kmod-kvm-x86
   KCONFIG:=CONFIG_KVM_AMD
   FILES:= $(LINUX_DIR)/arch/$(LINUX_KARCH)/kvm/kvm-amd.ko
-  AUTOLOAD:=$(call AutoProbe,kvm-amd.ko)
+  AUTOLOAD:=$(call AutoProbe,kvm-amd)
 endef
 
 define KernelPackage/kvm-amd/description
@@ -72,3 +72,125 @@ define KernelPackage/kvm-amd/description
 endef
 
 $(eval $(call KernelPackage,kvm-amd))
+
+
+define KernelPackage/vfio
+  SUBMENU:=Virtualization
+  TITLE:=VFIO Non-Privileged userspace driver framework
+  DEPENDS:=@TARGET_x86_64||TARGET_armsr_armv8
+  KCONFIG:= \
+	CONFIG_VFIO \
+	CONFIG_VFIO_NOIOMMU=n \
+	CONFIG_VFIO_MDEV=n
+  FILES:= \
+	$(LINUX_DIR)/drivers/vfio/vfio.ko \
+	$(LINUX_DIR)/drivers/vfio/vfio_iommu_type1.ko
+  AUTOLOAD:=$(call AutoProbe,vfio vfio_iommu_type1)
+endef
+
+define KernelPackage/vfio/description
+  VFIO provides a framework for secure userspace device drivers.
+endef
+
+$(eval $(call KernelPackage,vfio))
+
+
+define KernelPackage/vfio-pci
+  SUBMENU:=Virtualization
+  TITLE:=Generic VFIO support for any PCI device
+  DEPENDS:=@TARGET_x86_64||TARGET_armsr_armv8 @PCI_SUPPORT +kmod-vfio +kmod-irqbypass
+  KCONFIG:= \
+	CONFIG_VFIO_PCI \
+	CONFIG_VFIO_PCI_IGD=n
+  FILES:= \
+	$(LINUX_DIR)/drivers/vfio/pci/vfio-pci-core.ko \
+	$(LINUX_DIR)/drivers/vfio/pci/vfio-pci.ko
+  AUTOLOAD:=$(call AutoProbe,vfio-pci)
+endef
+
+define KernelPackage/vfio-pci/description
+  Support for the generic PCI VFIO bus driver which can connect any PCI
+  device to the VFIO framework.
+endef
+
+$(eval $(call KernelPackage,vfio-pci))
+
+
+define KernelPackage/vhost
+  SUBMENU:=Virtualization
+  TITLE:=Host kernel accelerator for virtio (base)
+  KCONFIG:=CONFIG_VHOST
+  FILES:=$(LINUX_DIR)/drivers/vhost/vhost.ko \
+    $(LINUX_DIR)/drivers/vhost/vhost_iotlb.ko
+  AUTOLOAD:=$(call AutoProbe,vhost vhost_iotlb)
+endef
+
+$(eval $(call KernelPackage,vhost))
+
+
+define KernelPackage/vhost-net
+  SUBMENU:=Virtualization
+  TITLE:=Host kernel accelerator for virtio-net
+  DEPENDS:=+kmod-tun +kmod-vhost
+  KCONFIG:=CONFIG_VHOST_NET
+  FILES:=$(LINUX_DIR)/drivers/vhost/vhost_net.ko
+  AUTOLOAD:=$(call AutoProbe,vhost_net)
+endef
+
+$(eval $(call KernelPackage,vhost-net))
+
+
+define KernelPackage/vsock
+  SUBMENU:=Virtualization
+  TITLE:=Virtual Socket Protocol
+  KCONFIG:= \
+	CONFIG_VSOCKETS \
+	CONFIG_VSOCKETS_LOOPBACK=n \
+	CONFIG_HYPERV_VSOCKETS=n
+  FILES:=$(LINUX_DIR)/net/vmw_vsock/vsock.ko
+  AUTOLOAD:=$(call AutoProbe,vsock)
+endef
+
+define KernelPackage/vsock/description
+  Kernel support support for the Virtual Socket Protocol.
+  Often used when running in a VM to communicate with the hypervisor.
+  Additionally needs a hypervisor-specific transport driver.
+endef
+
+$(eval $(call KernelPackage,vsock))
+
+
+define KernelPackage/vsock-virtio-common
+  SUBMENU:=Virtualization
+  TITLE:=Module used by other drivers to access Virtio Virtual Sockets
+  DEPENDS:=+kmod-vsock
+  KCONFIG:=CONFIG_VIRTIO_VSOCKETS_COMMON
+  FILES:=$(LINUX_DIR)/net/vmw_vsock/vmw_vsock_virtio_transport_common.ko
+  AUTOLOAD:=$(call AutoProbe,vmw_vsock_virtio_transport_common)
+  HIDDEN:=1
+endef
+
+$(eval $(call KernelPackage,vsock-virtio-common))
+
+
+define KernelPackage/vsock-virtio
+  SUBMENU:=Virtualization
+  TITLE:=Virtio transport driver for Virtual Sockets
+  DEPENDS:= @VIRTIO_SUPPORT +kmod-vsock +kmod-vsock-virtio-common
+  KCONFIG:=CONFIG_VIRTIO_VSOCKETS
+  FILES:=$(LINUX_DIR)/net/vmw_vsock/vmw_vsock_virtio_transport.ko
+  AUTOLOAD:=$(call AutoProbe,vmw_vsock_virtio_transport)
+endef
+
+define KernelPackage/vsock-virtio/description
+  Kernel support for Virtual Sockets over virtio.
+  Enable this transport if you plan to run OpenWRT in a virtual machine and the
+  hypervisor supports Virtual Sockets over virtio (Incus for example).
+
+  Usually needed by "guest agents" to function, as it provides a communication
+  channel between the guest os and the hypervisor.
+
+  The module will be called vmw_vsock_virtio_transport.
+endef
+
+$(eval $(call KernelPackage,vsock-virtio))

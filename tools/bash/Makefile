@@ -8,14 +8,18 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=bash
 PKG_CPE_ID:=cpe:/a:gnu:bash
-PKG_VERSION:=5.1.16
+PKG_VERSION:=5.3
 
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL:=@GNU/bash
-PKG_HASH:=5bac17218d3911834520dad13cd1f85ab944e1c09ae1aba55906be1f8192f558
+PKG_HASH:=0d5cd86965f869a26cf64f4b71be7b96f90a3ba8b3d74e27e8e9d9d5550f31ba
 
 HOST_BUILD_PARALLEL := 1
 
 include $(INCLUDE_DIR)/host-build.mk
+
+define Host/Uninstall
+	-$(call Host/Compile/Default,uninstall)
+endef
 
 $(eval $(call HostBuild))

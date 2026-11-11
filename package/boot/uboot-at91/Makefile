@@ -7,13 +7,13 @@
 
 include $(TOPDIR)/rules.mk
 
-PKG_VERSION:=linux4sam-2020.04
-PKG_RELEASE:=$(AUTORELEASE)
+PKG_VERSION:=linux4sam-2022.04
+PKG_RELEASE:=3
 
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://github.com/linux4sam/u-boot-at91.git
-PKG_MIRROR_HASH:=4f106d215c01c4d024c4612bbd3ef189188d19abc1ab2cc316b257d308534feb
-PKG_SOURCE_VERSION:=0e1d1b6efb7f8e27c372279a906fcd2524df09da
+PKG_MIRROR_HASH:=82229503800d9a624bb8de5f8d7a84cb35fd512a1550c6f1d46958cd47d4807b
+PKG_SOURCE_VERSION:=7b59654a486d39dc8e0343e2554699b8a79c7a54
 
 include $(INCLUDE_DIR)/u-boot.mk
 include $(INCLUDE_DIR)/package.mk
@@ -104,11 +104,11 @@ endef
 define U-Boot/sama5d4_xplained_nandflash
   NAME:=SAMA5D4 Xplained board (NandFlash)
   BUILD_SUBTARGET:=sama5
-  BUILD_DEVICES:=microchip_sama5d3-xplained
+  BUILD_DEVICES:=microchip_sama5d4-xplained
 endef
 
-define U-Boot/sama5d27_som1_ek_mmc1
-  NAME:=SAMA5D27 SOM1 Ek (SDCard1)
+define U-Boot/sama5d27_som1_ek_mmc
+  NAME:=SAMA5D27 SOM1 Ek (SDCard0)
   BUILD_SUBTARGET:=sama5
   BUILD_DEVICES:=microchip_sama5d27-som1-ek
 endef
@@ -143,6 +143,12 @@ define U-Boot/sama5d2_ptc_ek_mmc
   BUILD_DEVICES:=microchip_sama5d2-ptc-ek
 endef
 
+define U-Boot/sama7g5ek_mmc1
+  NAME:=SAMA7G5-EK (SDCard)
+  BUILD_SUBTARGET:=sama7
+  BUILD_DEVICES:=microchip_sama7g5-ek
+endef
+
 UBOOT_TARGETS := \
 	at91sam9m10g45ek_nandflash \
 	at91sam9x5ek_nandflash \
@@ -157,19 +163,25 @@ UBOOT_TARGETS := \
 	sama5d4_xplained_mmc \
 	sama5d4_xplained_spiflash \
 	sama5d4_xplained_nandflash\
-	sama5d27_som1_ek_mmc1 \
+	sama5d27_som1_ek_mmc \
 	sama5d27_som1_ek_qspiflash \
 	sama5d27_wlsom1_ek_mmc \
 	sama5d27_wlsom1_ek_qspiflash \
 	sama5d2_ptc_ek_nandflash \
-	sama5d2_ptc_ek_mmc
+	sama5d2_ptc_ek_mmc \
+	sama7g5ek_mmc1
 
 define Build/Compile
 	+$(MAKE) $(PKG_JOBS) -C $(PKG_BUILD_DIR) \
 		CROSS_COMPILE=$(TARGET_CROSS) \
-		DTC=$(PKG_BUILD_DIR)/scripts/dtc/dtc \
 		KCFLAGS="$(filter-out -fstack-protector \
-		-mfloat-abi=hard, $(TARGET_CFLAGS)) -mfloat-abi=soft"
+		-mfloat-abi=hard, $(TARGET_CFLAGS)) -mfloat-abi=soft" \
+		$(UBOOT_MAKE_FLAGS)
+endef
+
+define Build/InstallDev
+	$(INSTALL_DIR) $(STAGING_DIR_IMAGE)
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/$(UBOOT_IMAGE) $(STAGING_DIR_IMAGE)/$(BUILD_VARIANT)-$(UBOOT_IMAGE)
 endef
 
 $(eval $(call BuildPackage/U-Boot))

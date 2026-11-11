@@ -4,11 +4,9 @@
 
 menuconfig DEVEL
 	bool "Advanced configuration options (for developers)"
-	default n
 
 	config BROKEN
 		bool "Show broken platforms / packages / devices" if DEVEL
-		default n
 
 	config BINARY_FOLDER
 		string "Binary folder" if DEVEL
@@ -16,6 +14,20 @@ menuconfig DEVEL
 		help
 		  Store built firmware images and filesystem images in this directory.
 		  If not set, uses './bin/$(BOARD)'
+
+	config DOWNLOAD_TOOL_CUSTOM
+		string "Use custom download tool" if DEVEL
+		default ""
+		help
+		  Use and force custom download tool instead of relying on autoselection
+		  between curl if available and wget as a fallback.
+
+		  download.pl supports 3 tools officially aria2c, curl and wget.
+		  If one of the tool is used in this config, download.pl will use the
+		  default args to make use of them.
+
+		  If the provided string is different than aria2c, curl or wget, the command
+		  is used as is and the download url will be appended at the end of such command.
 
 	config DOWNLOAD_FOLDER
 		string "Download folder" if DEVEL
@@ -39,11 +51,70 @@ menuconfig DEVEL
 
 	config AUTOREMOVE
 		bool "Automatic removal of build directories" if DEVEL
-		default n
 		help
 		  Automatically delete build directories after make target completed.
 		  This allows you to symlink build_dir into a scratch location, e.g. a ramdisk,
 		  which does not have enough space to keep a complete build_dir.
+
+	config BUILD_ALL_HOST_TOOLS
+		bool "Compile all host tools" if DEVEL
+		help
+		  Compile all host host tools even if not needed. This is needed to prepare a
+		  universal precompiled host tools archive to use in another buildroot.
+
+	menuconfig OPTIMIZE_HOST_TOOLS
+		bool "Host Tools compile options" if DEVEL
+
+		if OPTIMIZE_HOST_TOOLS
+
+		config HOST_FLAGS_OPT
+			string "Host Tools optimization flags"
+			default "-O2"
+			help
+			  Compiler flags which are used to build host tools.
+
+			  E.g.: "-O2", "-O3 -fno-tree-vectorize".
+
+			  Default is "-O2".
+
+		config HOST_TOOLS_STRIP
+			bool "Strip Host Tools"
+			help
+			  Instructs compiler/linker to use flags from HOST_FLAGS_STRIP
+			  in order to reduce binary size of host tools.
+
+		config HOST_FLAGS_STRIP
+			string "Host Tools compiler/linker flags for stripping symbols"
+			depends on HOST_TOOLS_STRIP
+			default "-Wl,-s"
+			help
+			  Compiler flags which are used to strip symbols from host tools.
+
+			  Each flag should be prefixed with "-Wl," string
+			  because compiler (GCC) passes this value to linker.
+
+			  Default is "-Wl,-s" which means "strip all symbols" - specifically,
+			  debug symbols and other symbols not needed for relocation processing.
+
+		comment "Host Tools miscellaneous flags"
+
+		config HOST_EXTRA_CFLAGS
+			string "Host Tools extra CFLAGS"
+			default ""
+
+		config HOST_EXTRA_CXXFLAGS
+			string "Host Tools extra CXXFLAGS"
+			default ""
+
+		config HOST_EXTRA_CPPFLAGS
+			string "Host Tools extra CPPFLAGS"
+			default ""
+
+		config HOST_EXTRA_LDFLAGS
+			string "Host Tools extra LDFLAGS"
+			default ""
+
+		endif
 
 	config BUILD_SUFFIX
 		string "Build suffix to append to the target BUILD_DIR variable" if DEVEL
@@ -63,7 +134,6 @@ menuconfig DEVEL
 
 	config CCACHE
 		bool "Use ccache" if DEVEL
-		default n
 		help
 		  Compiler cache; see https://ccache.samba.org/
 
@@ -73,6 +143,27 @@ menuconfig DEVEL
 		help
 		  Store ccache in this directory.
 		  If not set, uses './.ccache'
+
+	config RUST_SCCACHE
+		bool "Use sccache for Rust" if DEVEL
+		depends on USE_RUST_TOOLCHAIN
+		help
+		  Rust compiler cache; see https://github.com/mozilla/sccache
+		  Builds sccache in tools/ and wraps the rustc invocations of
+		  cargo with it.
+
+	config RUST_SCCACHE_DIR
+		string "Set sccache directory" if RUST_SCCACHE
+		depends on RUST_SCCACHE
+		default ""
+		help
+		  Store the sccache cache and configuration in this directory.
+		  If not set, uses './.sccache'
+
+	config KERNEL_CFLAGS
+		string "Kernel extra CFLAGS" if DEVEL
+		default "-falign-functions=32" if TARGET_bcm53xx
+		default ""
 
 	config EXTERNAL_KERNEL_TREE
 		string "Use external kernel tree" if DEVEL
@@ -132,7 +223,7 @@ menuconfig DEVEL
 
 	config EXTRA_OPTIMIZATION
 		string "Additional compiler options" if DEVEL
-		default "-fno-caller-saves -fno-plt" if !CONFIG_EXTERNAL_TOOLCHAIN && !arc
+		default "-fno-caller-saves -fno-plt" if !CONFIG_EXTERNAL_TOOLCHAIN
 		default "-fno-caller-saves"
 		help
 		  Extra target-independent optimizations to use when building for the target.

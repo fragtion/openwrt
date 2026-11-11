@@ -65,6 +65,24 @@ ppp_exitcode_tostring()
 	esac
 }
 
+ppp_install_file() {
+	local file="$1" owner="$2" tmp
+
+	tmp=$(mktemp /var/run/.pppd.XXXXXX) || return
+	cat > "$tmp"
+	[ -z "$owner" ] || chown "$owner" "$tmp"
+	mv -f -T "$tmp" "$file" || {
+		rm -f "$tmp"
+		return 1
+	}
+}
+
+ppp_write_ua_file() {
+	local file="$1" user="$2" pass="$3" owner="$4"
+
+	printf '%s\n%s\n' "$user" "$pass" | ppp_install_file "$file" "$owner"
+}
+
 ppp_generic_init_config() {
 	proto_config_add_string username
 	proto_config_add_string password
@@ -79,16 +97,20 @@ ppp_generic_init_config() {
 	proto_config_add_int mtu
 	proto_config_add_string pppname
 	proto_config_add_string unnumbered
+	proto_config_add_string reqprefix
 	proto_config_add_boolean persist
 	proto_config_add_int maxfail
 	proto_config_add_int holdoff
+	proto_config_add_boolean sourcefilter
+	proto_config_add_boolean delegate
+	proto_config_add_boolean norelease
 }
 
 ppp_generic_setup() {
 	local config="$1"; shift
 	local localip
 
-	json_get_vars ip6table demand keepalive keepalive_adaptive username password pppd_options pppname unnumbered persist maxfail holdoff peerdns
+	json_get_vars ip6table demand keepalive keepalive_adaptive username password pppd_options pppname unnumbered reqprefix persist maxfail holdoff peerdns sourcefilter delegate norelease
 
 	[ ! -e /proc/sys/net/ipv6 ] && ipv6=0 || json_get_var ipv6 ipv6
 
@@ -98,6 +120,14 @@ ppp_generic_setup() {
 		ipv6=1
 		autoipv6=1
 	fi
+
+	if [ "$autoipv6" != 1 ]; then
+		reqprefix=""
+		norelease=""
+	fi
+
+	[ "$(set -- $reqprefix; echo $#)" -gt 1 ] && \
+		logger -p warn -t ppp "$config: ignoring extra reqprefix values"
 
 	if [ "${demand:-0}" -gt 0 ]; then
 		demand="precompiled-active-filter /etc/ppp/filter demand idle $demand"
@@ -133,21 +163,59 @@ ppp_generic_setup() {
 	[ "${keepalive_adaptive:-1}" -lt 1 ] && lcp_adaptive=""
 	[ -n "$connect" ] || json_get_var connect connect
 	[ -n "$disconnect" ] || json_get_var disconnect disconnect
+	[ "$sourcefilter" = "0" ] || sourcefilter=""
+	[ "$delegate" != "0" ] && delegate=""
+	[ "$norelease" = "1" ] || norelease=""
 
-	proto_run_command "$config" /usr/sbin/pppd \
+	local jail arg secret secrets caps=/etc/capabilities/pppd.json
+	[ -x /sbin/ujail ] && [ -f "$caps" ] && id -u ppp >/dev/null 2>&1 && {
+		jail="/sbin/ujail -t 5 -n pppd -U ppp -G ppp -C $caps -c --"
+		chown ppp /dev/ppp
+		mkdir -p /var/run/pppd /var/run/pptp
+		chown ppp /var/run/pppd /var/run/pptp
+		# pppd rewrites the peer DNS file behind /etc/ppp/resolv.conf at
+		# every connect; one left by a root-run instance refuses uid 454
+		rm -f /tmp/resolv.conf.ppp
+		# A serial link is handed its TTY as a pppd argument - first by
+		# proto_ppp_setup, last by comgt's proto_3g_setup - and a TTY is
+		# root:dialout 0660, which no capability overrides.
+		for arg in "$@"; do
+			[ -c "$arg" ] && chown ppp "$arg"
+		done
+		for secret in chap-secrets pap-secrets; do
+			grep -qs '^[[:space:]]*[^#[:space:]]' "/etc/ppp/$secret" || continue
+			ppp_install_file "/var/run/pppd/$config.$secret" ppp \
+				< "/etc/ppp/$secret" || continue
+			secrets="$secrets $secret /var/run/pppd/$config.$secret"
+		done
+	}
+
+	local uafile
+	[ -n "$username" ] && {
+		uafile="/var/run/pppd/$config.creds"
+		mkdir -p /var/run/pppd
+		ppp_write_ua_file "$uafile" "$username" "$password" ${jail:+ppp}
+	}
+
+	proto_run_command "$config" $jail /usr/sbin/pppd \
 		nodetach ipparam "$config" \
 		ifname "$pppname" \
 		${localip:+$localip:} \
 		${lcp_failure:+lcp-echo-interval $lcp_interval lcp-echo-failure $lcp_failure $lcp_adaptive} \
 		${ipv6:++ipv6} \
 		${autoipv6:+set AUTOIPV6=1} \
-		${ip6table:+set IP6TABLE=$ip6table} \
+		${reqprefix:+set "REQPREFIX=$reqprefix"} \
+		${norelease:+set NORELEASE=1} \
+		${ip6table:+set "IP6TABLE=$ip6table"} \
 		${peerdns:+set PEERDNS=$peerdns} \
+		${sourcefilter:+set NOSOURCEFILTER=1} \
+		${delegate:+set DELEGATE=0} \
 		nodefaultroute \
 		usepeerdns \
 		$demand $persist maxfail $maxfail \
 		${holdoff:+holdoff "$holdoff"} \
-		${username:+user "$username" password "$password"} \
+		${uafile:++ua "$uafile" net-init-script /lib/netifd/ppp-net-init} \
+		$secrets \
 		${connect:+connect "$connect"} \
 		${disconnect:+disconnect "$disconnect"} \
 		ip-up-script /lib/netifd/ppp-up \
@@ -161,6 +229,10 @@ ppp_generic_setup() {
 ppp_generic_teardown() {
 	local interface="$1"
 	local errorstring=$(ppp_exitcode_tostring $ERROR)
+
+	rm -f "/var/run/pppd/$interface.creds" \
+		"/var/run/pppd/$interface.chap-secrets" \
+		"/var/run/pppd/$interface.pap-secrets"
 
 	case "$ERROR" in
 		0)
@@ -209,6 +281,7 @@ proto_pppoe_init_config() {
 	ppp_generic_init_config
 	proto_config_add_string "ac"
 	proto_config_add_string "service"
+	proto_config_add_string "ac_mac"
 	proto_config_add_string "host_uniq"
 	proto_config_add_int "padi_attempts"
 	proto_config_add_int "padi_timeout"
@@ -220,15 +293,14 @@ proto_pppoe_setup() {
 	local config="$1"
 	local iface="$2"
 
-	for module in slhc ppp_generic pppox pppoe; do
-		/sbin/insmod $module 2>&- >&-
-	done
+	/sbin/modprobe -qa slhc ppp_generic pppox pppoe
 
 	json_get_var mtu mtu
 	mtu="${mtu:-1492}"
 
 	json_get_var ac ac
 	json_get_var service service
+	json_get_var ac_mac ac_mac
 	json_get_var host_uniq host_uniq
 	json_get_var padi_attempts padi_attempts
 	json_get_var padi_timeout padi_timeout
@@ -237,6 +309,7 @@ proto_pppoe_setup() {
 		plugin pppoe.so \
 		${ac:+rp_pppoe_ac "$ac"} \
 		${service:+rp_pppoe_service "$service"} \
+		${ac_mac:+pppoe-mac "$ac_mac"} \
 		${host_uniq:+host-uniq "$host_uniq"} \
 		${padi_attempts:+pppoe-padi-attempts $padi_attempts} \
 		${padi_timeout:+pppoe-padi-timeout $padi_timeout} \
@@ -262,9 +335,7 @@ proto_pppoa_setup() {
 	local config="$1"
 	local iface="$2"
 
-	for module in slhc ppp_generic pppox pppoatm; do
-		/sbin/insmod $module 2>&- >&-
-	done
+	/sbin/modprobe -qa slhc ppp_generic pppox pppoatm
 
 	json_get_vars atmdev vci vpi encaps
 
@@ -311,13 +382,8 @@ proto_pptp_setup() {
 		exit 1
 	}
 
-	local load
-	for module in slhc ppp_generic ppp_async ppp_mppe ip_gre gre pptp; do
-		grep -q "^$module " /proc/modules && continue
-		/sbin/insmod $module 2>&- >&-
-		load=1
-	done
-	[ "$load" = "1" ] && sleep 1
+	/sbin/modprobe -qa slhc ppp_generic ppp_async ppp_mppe ip_gre gre pptp
+	sleep 1
 
 	ppp_generic_setup "$config" \
 		plugin pptp.so \
@@ -335,4 +401,3 @@ proto_pptp_teardown() {
 	[ -f /usr/lib/pppd/*/pppoatm.so ] && add_protocol pppoa
 	[ -f /usr/lib/pppd/*/pptp.so ] && add_protocol pptp
 }
-

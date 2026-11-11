@@ -13,6 +13,7 @@ export TOPDIR LC_ALL LANG
 export OPENWRT_VERBOSE=s
 all: help
 
+export ORIG_PATH:=$(if $(ORIG_PATH),$(ORIG_PATH),$(PATH))
 export PATH:=$(TOPDIR)/staging_dir/host/bin:$(PATH)
 
 ifneq ($(OPENWRT_BUILD),1)
@@ -27,6 +28,7 @@ include $(INCLUDE_DIR)/rootfs.mk
 
 include $(INCLUDE_DIR)/version.mk
 export REVISION
+export SOURCE_DATE_EPOCH
 
 define Helptext
 Available Commands:
@@ -34,8 +36,11 @@ Available Commands:
 	info:	Show a list of available target profiles
 	clean:	Remove images and temporary build files
 	image:	Build an image (see below for more information).
+	manifest: Show all package that will be installed into the image
+	package_whatdepends: Show which packages have a dependency on this
+	package_depends: Show installation dependency of the package
 
-Building images:
+image:
 	By default 'make image' will create an image with the default
 	target profile and package set. You can use the following parameters
 	to change that:
@@ -47,14 +52,29 @@ Building images:
 	make image EXTRA_IMAGE_NAME="<string>" # Add this to the output image filename (sanitized)
 	make image DISABLED_SERVICES="<svc1> [<svc2> [<svc3> ..]]" # Which services in /etc/init.d/ should be disabled
 	make image ADD_LOCAL_KEY=1 # store locally generated signing key in built images
+	make image ROOTFS_PARTSIZE="<size>" # override the default rootfs partition size in MegaBytes
+	make image ROOTFS_FILESYSTEM="<fs>" # restrict images to one filesystem (e.g. squashfs, ext4, jffs2)
 
-Print manifest:
+manifest:
 	List "all" packages which get installed into the image.
 	You can use the following parameters:
 
 	make manifest PROFILE="<profilename>" # override the default target profile
 	make manifest PACKAGES="<pkg1> [<pkg2> [<pkg3> ...]]" # include extra packages
 	make manifest STRIP_ABI=1 # remove ABI version from printed package names
+
+
+package_whatdepends:
+	List "all" packages that have a dependency on this package
+	You can use the following parameters:
+
+	make package_whatdepends PACKAGE="<pkg>"
+
+package_depends:
+	List "all" packages dependency of the package
+	You can use the following parameters:
+
+	make package_depends PACKAGE="<pkg>"
 
 endef
 $(eval $(call shexport,Helptext))
@@ -64,8 +84,12 @@ help: FORCE
 
 
 # override variables from rules.mk
-PACKAGE_DIR:=$(TOPDIR)/packages
+BUILD_KEY_APK_SEC=$(TOPDIR)/keys/local-private-key.pem
+BUILD_KEY_APK_PUB=$(TOPDIR)/keys/local-public-key.pem
+export PACKAGE_DIR:=$(TOPDIR)/packages
 LISTS_DIR:=$(subst $(space),/,$(patsubst %,..,$(subst /,$(space),$(TARGET_DIR))))$(DL_DIR)
+export PACKAGE_DIR_ALL:=$(TOPDIR)/packages
+
 export OPKG_KEYS:=$(TOPDIR)/keys
 OPKG:=$(call opkg,$(TARGET_DIR)) \
 	-f $(TOPDIR)/repositories.conf \
@@ -73,8 +97,28 @@ OPKG:=$(call opkg,$(TARGET_DIR)) \
 	--cache $(DL_DIR) \
 	--lists-dir $(LISTS_DIR)
 
+export APK_KEYS:=$(TOPDIR)/keys
+APK:=$(call apk,$(TARGET_DIR)) \
+	$(if $(CONFIG_IB_STANDALONE),,--repositories-file $(TOPDIR)/repositories) \
+	--repository $(PACKAGE_DIR)/packages.adb \
+	$(if $(CONFIG_SIGNATURE_CHECK),,--allow-untrusted) \
+	--cache-dir $(DL_DIR)
+
+
 include $(INCLUDE_DIR)/target.mk
+include $(INCLUDE_DIR)/default-packages.mk
 -include .profiles.mk
+
+# Filesystems this ImageBuilder was built with (used to validate ROOTFS_FILESYSTEM)
+IB_FILESYSTEMS := \
+	$(if $(CONFIG_TARGET_ROOTFS_SQUASHFS),squashfs) \
+	$(if $(CONFIG_TARGET_ROOTFS_EXT4FS),ext4) \
+	$(if $(CONFIG_TARGET_ROOTFS_UBIFS),ubifs) \
+	$(if $(CONFIG_TARGET_ROOTFS_EROFS),erofs) \
+	$(if $(CONFIG_TARGET_ROOTFS_JFFS2),jffs2) \
+	$(if $(CONFIG_TARGET_ROOTFS_JFFS2_NAND),jffs2-nand) \
+	$(if $(CONFIG_TARGET_ROOTFS_TARGZ),targz) \
+	$(if $(CONFIG_TARGET_ROOTFS_CPIOGZ),cpiogz)
 
 USER_PROFILE ?= $(firstword $(PROFILE_NAMES))
 PROFILE_LIST = $(foreach p,$(PROFILE_NAMES), \
@@ -84,7 +128,7 @@ PROFILE_LIST = $(foreach p,$(PROFILE_NAMES), \
 
 
 .profiles.mk: .targetinfo
-	@$(SCRIPT_DIR)/target-metadata.pl profile_mk $< '$(BOARD)$(if $(SUBTARGET),/$(SUBTARGET))' > $@
+	@$(SCRIPT_DIR)/target-metadata.pl profile_mk $< '$(BOARD)/$(SUBTARGET)' > $@
 
 staging_dir/host/.prereq-build: include/prereq-build.mk
 	mkdir -p tmp
@@ -108,9 +152,37 @@ _call_info: FORCE
 	echo 'Available Profiles:'
 	echo; $(PROFILE_LIST)
 
-BUILD_PACKAGES:=$(USER_PACKAGES) $(sort $(DEFAULT_PACKAGES) $($(USER_PROFILE)_PACKAGES) kernel)
+BUILD_PACKAGES:=$(sort $(DEFAULT_PACKAGES) $($(USER_PROFILE)_PACKAGES) kernel)
 # "-pkgname" in the package list means remove "pkgname" from the package list
 BUILD_PACKAGES:=$(filter-out $(filter -%,$(BUILD_PACKAGES)) $(patsubst -%,%,$(filter -%,$(BUILD_PACKAGES))),$(BUILD_PACKAGES))
+BUILD_PACKAGES:=$(USER_PACKAGES) $(BUILD_PACKAGES)
+BUILD_PACKAGES:=$(filter-out $(filter -%,$(BUILD_PACKAGES)) $(patsubst -%,%,$(filter -%,$(BUILD_PACKAGES))),$(BUILD_PACKAGES))
+
+ifneq ($(CONFIG_USE_APK),)
+BUILD_PACKAGES+= \
+  "base-files=$(BASE_FILES_VERSION)" \
+  "libc=$(LIBC_VERSION)" \
+  "kernel=$(KERNEL_VERSION)"
+endif
+
+# Get ABI version suffix for a package from an apk index
+#
+# 1: package name
+define GetABISuffix
+$(shell $(APK) query --fields tags --match provides $(1) | tr ' ' '\n' | grep '^openwrt:abiversion=' | cut -d= -f2)
+endef
+
+# Format packages by adding an ABI version suffix if found
+#
+# 1: list of packages
+define FormatPackages
+$(strip $(foreach pkg,$(strip $(subst ",,$(1))),
+  $(eval pkg_name:=$(firstword $(subst =, ,$(pkg))))
+  $(eval pkg_ver:=$(if $(findstring =,$(pkg)),=$(lastword $(subst =, ,$(pkg)))))
+  $(pkg_name)$(call GetABISuffix,$(pkg_name))$(pkg_ver)
+))
+endef
+
 PACKAGES:=
 
 _call_image: staging_dir/host/.prereq-build
@@ -131,61 +203,107 @@ _call_manifest: FORCE
 	mkdir -p $(TARGET_DIR) $(BIN_DIR) $(TMP_DIR) $(DL_DIR)
 	$(MAKE) package_reload >/dev/null
 	$(MAKE) package_install >/dev/null
+ifeq ($(CONFIG_USE_APK),)
 	$(OPKG) list-installed $(if $(STRIP_ABI),--strip-abi)
+else
+	$(APK) query --format json --fields name,version,$(if $(STRIP_ABI),tags) --installed '*' | \
+		$(SCRIPT_DIR)/make-index-json.py -a $(ARCH_PACKAGES) -f apk --manifest -
+endif
 
 package_index: FORCE
 	@echo >&2
 	@echo Building package index... >&2
 	@mkdir -p $(TMP_DIR) $(TARGET_DIR)/tmp
+ifeq ($(CONFIG_USE_APK),)
 	(cd $(PACKAGE_DIR); $(SCRIPT_DIR)/ipkg-make-index.sh . > Packages && \
 		gzip -9nc Packages > Packages.gz; \
 		$(if $(CONFIG_SIGNATURE_CHECK), \
 			$(STAGING_DIR_HOST)/bin/usign -S -m Packages -s $(BUILD_KEY)) \
 	) >/dev/null 2>/dev/null
 	$(OPKG) update >&2 || true
+else
+	(cd $(PACKAGE_DIR); $(APK) mkndx \
+		$(if $(CONFIG_SIGNATURE_CHECK), --keys-dir $(APK_KEYS) --sign $(BUILD_KEY_APK_SEC)) \
+		--allow-untrusted --output packages.adb *.apk) >/dev/null 2>/dev/null || true
+endif
 
 package_reload:
+ifeq ($(CONFIG_USE_APK),)
 	if [ -d "$(PACKAGE_DIR)" ] && ( \
 			[ ! -f "$(PACKAGE_DIR)/Packages" ] || \
 			[ ! -f "$(PACKAGE_DIR)/Packages.gz" ] || \
-			[ "`find $(PACKAGE_DIR) -cnewer $(PACKAGE_DIR)/Packages.gz`" ] ); then \
+			[ "`find $(PACKAGE_DIR) -cnewer $(PACKAGE_DIR)/Packages.gz ! -name Packages.sig`" ] ); then \
 		echo "Package list missing or not up-to-date, generating it." >&2 ;\
 		$(MAKE) package_index; \
 	else \
 		mkdir -p $(TARGET_DIR)/tmp; \
 		$(OPKG) update >&2 || true; \
 	fi
+else
+	$(APK) add --arch $(ARCH_PACKAGES) --initdb
+	if [ -d "$(PACKAGE_DIR)" ] && ( \
+			[ ! -f "$(PACKAGE_DIR)/packages.adb" ] || \
+			[ "`find $(PACKAGE_DIR) -cnewer $(PACKAGE_DIR)/packages.adb`" ] ); then \
+		echo "Package list missing or not up-to-date, generating it." >&2 ;\
+		$(MAKE) package_index; \
+	else \
+		mkdir -p $(TARGET_DIR)/tmp; \
+	fi
+endif
 
 package_list: FORCE
 	@$(MAKE) -s package_reload
+ifeq ($(CONFIG_USE_APK),)
 	@$(OPKG) list --size 2>/dev/null
+else
+	@$(APK) list --size 2>/dev/null
+endif
 
 package_install: FORCE
 	@echo
 	@echo Installing packages...
-	$(OPKG) install $(firstword $(wildcard $(LINUX_DIR)/libc_*.ipk $(PACKAGE_DIR)/libc_*.ipk))
-	$(OPKG) install $(firstword $(wildcard $(LINUX_DIR)/kernel_*.ipk $(PACKAGE_DIR)/kernel_*.ipk))
+ifeq ($(CONFIG_USE_APK),)
+	$(OPKG) install $(wildcard $(PACKAGE_DIR)/libc_*.ipk)
+	$(OPKG) install $(wildcard $(PACKAGE_DIR)/kernel_*.ipk)
 	$(OPKG) install $(BUILD_PACKAGES)
+else
+	$(eval BUILD_PACKAGES:=$(call FormatPackages,$(BUILD_PACKAGES)))
+	$(APK) add --arch $(ARCH_PACKAGES) --no-scripts $(BUILD_PACKAGES)
+endif
 
 prepare_rootfs: FORCE
 	@echo
 	@echo Finalizing root filesystem...
 
 	$(CP) $(TARGET_DIR) $(TARGET_DIR_ORIG)
+ifeq ($(CONFIG_USE_APK),)
 	$(if $(CONFIG_SIGNATURE_CHECK), \
 		$(if $(ADD_LOCAL_KEY), \
 			OPKG_KEYS=$(TARGET_DIR)/etc/opkg/keys/ \
 			$(SCRIPT_DIR)/opkg-key add $(BUILD_KEY).pub \
 		) \
 	)
+else
+	$(if $(CONFIG_SIGNATURE_CHECK), \
+		$(if $(ADD_LOCAL_KEY), \
+			mkdir -p $(TARGET_DIR)/etc/apk/keys/; \
+			cp $(BUILD_KEY_APK_PUB) $(TARGET_DIR)/etc/apk/keys/; \
+		) \
+	)
+endif
 	$(call prepare_rootfs,$(TARGET_DIR),$(USER_FILES),$(DISABLED_SERVICES))
 
 build_image: FORCE
 	@echo
 	@echo Building images...
 	rm -rf $(BUILD_DIR)/json_info_files/
-	$(NO_TRACE_MAKE) -C target/linux/$(BOARD)/image install TARGET_BUILD=1 IB=1 EXTRA_IMAGE_NAME="$(EXTRA_IMAGE_NAME)" \
-		$(if $(USER_PROFILE),PROFILE="$(USER_PROFILE)")
+	if [ -d "target/linux/feeds/$(BOARD)" ]; then \
+		$(NO_TRACE_MAKE) -C target/linux/feeds/$(BOARD)/image install TARGET_BUILD=1 IB=1 EXTRA_IMAGE_NAME="$(EXTRA_IMAGE_NAME)" \
+			$(if $(USER_PROFILE),PROFILE="$(USER_PROFILE)"); \
+	else \
+		$(NO_TRACE_MAKE) -C target/linux/$(BOARD)/image install TARGET_BUILD=1 IB=1 EXTRA_IMAGE_NAME="$(EXTRA_IMAGE_NAME)" \
+			$(if $(USER_PROFILE),PROFILE="$(USER_PROFILE)"); \
+	fi
 
 $(BIN_DIR)/profiles.json: FORCE
 	$(if $(CONFIG_JSON_OVERVIEW_IMAGE_INFO), \
@@ -218,8 +336,22 @@ ifneq ($(PROFILE),)
   endif
 endif
 
+_check_rootfs_filesystem: FORCE
+ifneq ($(ROOTFS_FILESYSTEM),)
+  ifneq ($(words $(ROOTFS_FILESYSTEM)),1)
+	@echo 'ROOTFS_FILESYSTEM must be a single value, got "$(ROOTFS_FILESYSTEM)"'
+	@exit 1
+  endif
+  ifeq ($(filter $(ROOTFS_FILESYSTEM),$(IB_FILESYSTEMS)),)
+	@echo 'Filesystem "$(ROOTFS_FILESYSTEM)" is not available!'
+	@echo 'Available filesystems: $(strip $(IB_FILESYSTEMS))'
+	@exit 1
+  endif
+endif
+
 _check_keys: FORCE
 ifneq ($(CONFIG_SIGNATURE_CHECK),)
+ifeq ($(CONFIG_USE_APK),)
 	@if [ ! -s $(BUILD_KEY) -o ! -s $(BUILD_KEY).pub ]; then \
 		echo Generate local signing keys... >&2; \
 		$(STAGING_DIR_HOST)/bin/usign -G \
@@ -233,10 +365,20 @@ ifneq ($(CONFIG_SIGNATURE_CHECK),)
 			-p $(BUILD_KEY).pub \
 			-s $(BUILD_KEY); \
 	fi
+else
+	@if [ ! -s $(BUILD_KEY_APK_SEC) -o ! -s $(BUILD_KEY_APK_PUB) ]; then \
+		echo Generate local signing keys... >&2; \
+		$(STAGING_DIR_HOST)/bin/openssl ecparam -name prime256v1 -genkey -noout -out $(BUILD_KEY_APK_SEC); \
+		sed -i '1s/^/untrusted comment: Local build key\n/' $(BUILD_KEY_APK_SEC); \
+		$(STAGING_DIR_HOST)/bin/openssl ec -in $(BUILD_KEY_APK_SEC) -pubout > $(BUILD_KEY_APK_PUB); \
+		sed -i '1s/^/untrusted comment: Local build key\n/' $(BUILD_KEY_APK_PUB); \
+	fi
+endif
 endif
 
 image:
 	$(MAKE) -s _check_profile
+	$(MAKE) -s _check_rootfs_filesystem
 	$(MAKE) -s _check_keys
 	(unset PROFILE FILES PACKAGES MAKEFLAGS; \
 	$(MAKE) -s _call_image \
@@ -244,7 +386,9 @@ image:
 		$(if $(FILES),USER_FILES="$(FILES)") \
 		$(if $(PACKAGES),USER_PACKAGES="$(PACKAGES)") \
 		$(if $(BIN_DIR),BIN_DIR="$(BIN_DIR)") \
-		$(if $(DISABLED_SERVICES),DISABLED_SERVICES="$(DISABLED_SERVICES)"))
+		$(if $(DISABLED_SERVICES),DISABLED_SERVICES="$(DISABLED_SERVICES)") \
+		$(if $(ROOTFS_PARTSIZE),CONFIG_TARGET_ROOTFS_PARTSIZE="$(ROOTFS_PARTSIZE)") \
+		$(if $(ROOTFS_FILESYSTEM),ROOTFS_FILESYSTEM="$(ROOTFS_FILESYSTEM)"))
 
 manifest: FORCE
 	$(MAKE) -s _check_profile
@@ -254,12 +398,28 @@ manifest: FORCE
 		$(if $(PROFILE),USER_PROFILE="$(PROFILE_FILTER)") \
 		$(if $(PACKAGES),USER_PACKAGES="$(PACKAGES)"))
 
-whatdepends: FORCE
+package_whatdepends: FORCE
 ifeq ($(PACKAGE),)
 	@echo 'Variable `PACKAGE` is not set but required by `whatdepends`'
 	@exit 1
 endif
 	@$(MAKE) -s package_reload
+ifeq ($(CONFIG_USE_APK),)
 	@$(OPKG) whatdepends -A $(PACKAGE)
+else
+	@$(APK) list --depends $(PACKAGE)
+endif
 
-.SILENT: help info image manifest whatdepends
+package_depends: FORCE
+ifeq ($(PACKAGE),)
+	@echo 'Variable `PACKAGE` is not set but required by `package_depends`'
+	@exit 1
+endif
+	@$(MAKE) -s package_reload
+ifeq ($(CONFIG_USE_APK),)
+	@$(OPKG) depends -A $(PACKAGE)
+else
+	@$(APK) info --depends $(PACKAGE)
+endif
+
+.SILENT: help info image manifest package_whatdepends package_depends

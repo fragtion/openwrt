@@ -160,23 +160,6 @@ endef
 $(eval $(call KernelPackage,w1-slave-ds2433))
 
 
-define KernelPackage/w1-slave-ds2760
-  TITLE:=Dallas 2760 battery monitor chip (HP iPAQ & others)
-  KCONFIG:= \
-	CONFIG_W1_SLAVE_DS2760 \
-	CONFIG_W1_SLAVE_DS2433_CRC=n
-  FILES:=$(W1_SLAVES_DIR)/w1_ds2760.ko
-  AUTOLOAD:=$(call AutoProbe,w1_ds2760)
-  $(call AddDepends/w1)
-endef
-
-define KernelPackage/w1-slave-ds2760/description
- Kernel module for 1-wire DS2760 battery monitor chip support
-endef
-
-$(eval $(call KernelPackage,w1-slave-ds2760))
-
-
 define KernelPackage/w1-slave-ds2413
   TITLE:=DS2413 2 Ch. Addressable Switch
   KCONFIG:= \
@@ -191,3 +174,19 @@ define KernelPackage/w1-slave-ds2413/description
 endef
 
 $(eval $(call KernelPackage,w1-slave-ds2413))
+
+
+define KernelPackage/w1-slave-ds2438
+  TITLE:=DS2438 Smart Battery Monitor
+  KCONFIG:= \
+       CONFIG_W1_SLAVE_DS2438
+  FILES:=$(W1_SLAVES_DIR)/w1_ds2438.ko
+  AUTOLOAD:=$(call AutoProbe,w1_ds2438)
+  $(call AddDepends/w1)
+endef
+
+define KernelPackage/w1-slave-ds2438/description
+ Kernel module for 1-wire DS2438 Smart Battery Monitor support
+endef
+
+$(eval $(call KernelPackage,w1-slave-ds2438))

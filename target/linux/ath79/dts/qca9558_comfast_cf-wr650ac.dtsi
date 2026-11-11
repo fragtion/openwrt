@@ -4,6 +4,7 @@
 
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
+#include <dt-bindings/leds/common.h>
 
 / {
 	keys {
@@ -21,19 +22,14 @@
 		compatible = "gpio-leds";
 
 		wps {
-			label = "blue:wps";
+			function = LED_FUNCTION_WPS;
+			color = <LED_COLOR_ID_BLUE>;
 			gpios = <&gpio 20 GPIO_ACTIVE_LOW>;
 		};
 
 		network {
 			label = "blue:network";
 			gpios = <&gpio 4 GPIO_ACTIVE_LOW>;
-		};
-
-		wlan2g {
-			label = "blue:wlan2";
-			gpios = <&gpio 13 GPIO_ACTIVE_LOW>;
-			linux,default-trigger = "phy1tpt";
 		};
 
 		wlan5g {
@@ -67,9 +63,9 @@
 &mdio0 {
 	status = "okay";
 
-	switch0@1f {
+	ethernet-switch@10 {
 		compatible = "qca,ar8327";
-		reg = <0x1f>;
+		reg = <0x10>;
 		qca,ar8327-initvals = <
 			0x04 0x87600000 /* PORT0 PAD MODE CTRL */
 			0x0c 0x00080080 /* PORT6 PAD MODE CTRL */
@@ -102,8 +98,17 @@
 	};
 };
 
+&wdt {
+	status = "disabled";
+};
+
 &wmac {
 	status = "okay";
+
+	led {
+		led-sources = <13>;
+		led-active-low;
+	};
 };
 
 // This node is required for the Ethernet ports to work correctly.

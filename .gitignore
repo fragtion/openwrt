@@ -14,12 +14,15 @@
 /feeds
 /feeds.conf
 /files
+/target/linux/feeds
 /overlay
 /package/feeds
 /package/openwrt-packages
 /*.patch
 /llvm-bpf*
 key-build*
+private-key.pem
+public-key.pem
 *.orig
 *.rej
 *~
@@ -31,4 +34,5 @@ git-src
 .project
 .cproject
 .ccache
+.sccache
 .vscode*

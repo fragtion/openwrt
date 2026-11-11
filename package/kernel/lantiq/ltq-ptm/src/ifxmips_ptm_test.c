@@ -36,7 +36,6 @@
  */
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/version.h>
 #include <linux/types.h>
 #include <linux/errno.h>
 #include <linux/proc_fs.h>
@@ -651,23 +650,14 @@ static int proc_write_pp32(struct file *file, const char *buf, unsigned long cou
 
     if ( stricmp(p, "start") == 0 )
     {
-  #ifdef CONFIG_AMAZON_SE
-        *PP32_CTRL_CMD(pp32) = 0;
-  #endif
         *PP32_CTRL_CMD(pp32) = PP32_CTRL_CMD_RESTART;
     }
     else if ( stricmp(p, "stop") == 0 )
     {
-  #ifdef CONFIG_AMAZON_SE
-        *PP32_CTRL_CMD(pp32) = 0;
-  #endif
         *PP32_CTRL_CMD(pp32) = PP32_CTRL_CMD_STOP;
     }
     else if ( stricmp(p, "step") == 0 )
     {
-  #ifdef CONFIG_AMAZON_SE
-        *PP32_CTRL_CMD(pp32) = 0;
-  #endif
         *PP32_CTRL_CMD(pp32) = PP32_CTRL_CMD_STEP;
     }
   #ifdef CONFIG_VR9

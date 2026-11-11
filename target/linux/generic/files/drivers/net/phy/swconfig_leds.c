@@ -85,7 +85,7 @@ swconfig_trig_update_port_mask(struct led_trigger *trigger)
 	sw_trig = (void *) trigger;
 
 	port_mask = 0;
-	read_lock(&trigger->leddev_list_lock);
+	spin_lock(&trigger->leddev_list_lock);
 	list_for_each(entry, &trigger->led_cdevs) {
 		struct led_classdev *led_cdev;
 		struct swconfig_trig_data *trig_data;
@@ -98,7 +98,7 @@ swconfig_trig_update_port_mask(struct led_trigger *trigger)
 			read_unlock(&trig_data->lock);
 		}
 	}
-	read_unlock(&trigger->leddev_list_lock);
+	spin_unlock(&trigger->leddev_list_lock);
 
 	sw_trig->port_mask = port_mask;
 
@@ -213,15 +213,15 @@ static ssize_t swconfig_trig_mode_show(struct device *dev,
 	read_unlock(&trig_data->lock);
 
 	if (mode == 0) {
-		strcpy(buf, "none\n");
+		strscpy(buf, "none\n", PAGE_SIZE);
 	} else {
 		if (mode & SWCONFIG_LED_MODE_LINK)
-			strcat(buf, "link ");
+			strlcat(buf, "link ", PAGE_SIZE);
 		if (mode & SWCONFIG_LED_MODE_TX)
-			strcat(buf, "tx ");
+			strlcat(buf, "tx ", PAGE_SIZE);
 		if (mode & SWCONFIG_LED_MODE_RX)
-			strcat(buf, "rx ");
-		strcat(buf, "\n");
+			strlcat(buf, "rx ", PAGE_SIZE);
+		strlcat(buf, "\n", PAGE_SIZE);
 	}
 
 	return strlen(buf)+1;
@@ -237,8 +237,7 @@ static ssize_t swconfig_trig_mode_store(struct device *dev,
 	char *p, *token;
 
 	/* take a copy since we don't want to trash the inbound buffer when using strsep */
-	strncpy(copybuf, buf, sizeof(copybuf));
-	copybuf[sizeof(copybuf) - 1] = 0;
+	strscpy(copybuf, buf, sizeof(copybuf));
 	p = copybuf;
 
 	while ((token = strsep(&p, " \t\n")) != NULL) {
@@ -418,14 +417,14 @@ swconfig_trig_update_leds(struct switch_led_trigger *sw_trig)
 	struct led_trigger *trigger;
 
 	trigger = &sw_trig->trig;
-	read_lock(&trigger->leddev_list_lock);
+	spin_lock(&trigger->leddev_list_lock);
 	list_for_each(entry, &trigger->led_cdevs) {
 		struct led_classdev *led_cdev;
 
 		led_cdev = list_entry(entry, struct led_classdev, trig_list);
 		swconfig_trig_led_event(sw_trig, led_cdev);
 	}
-	read_unlock(&trigger->leddev_list_lock);
+	spin_unlock(&trigger->leddev_list_lock);
 }
 
 static void

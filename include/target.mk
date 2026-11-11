@@ -6,10 +6,18 @@
 ifneq ($(__target_inc),1)
 __target_inc=1
 
-# default device type
+
+##@
+# @brief Default device type ( basic | nas | router ).
+##
 DEVICE_TYPE?=router
 
-# Default packages - the really basic set
+##@
+# @brief Default packages.
+#
+# The really basic set. Additional packages are added based on @DEVICE_TYPE and
+# @CONFIG_* values.
+##
 DEFAULT_PACKAGES:=\
 	base-files \
 	ca-bundle \
@@ -17,41 +25,30 @@ DEFAULT_PACKAGES:=\
 	fstools \
 	libc \
 	libgcc \
-	libustream-wolfssl \
+	libustream-mbedtls \
 	logd \
 	mtd \
 	netifd \
-	opkg \
 	uci \
 	uclient-fetch \
 	urandom-seed \
 	urngd
 
-ifneq ($(CONFIG_SELINUX),)
-DEFAULT_PACKAGES+=busybox-selinux procd-selinux
-else
-DEFAULT_PACKAGES+=busybox procd
-endif
-
-# include ujail on systems with enough storage
-ifeq ($(CONFIG_SMALL_FLASH),)
-DEFAULT_PACKAGES+=procd-ujail
-endif
-
-# include seccomp ld-preload hooks if kernel supports it
-ifneq ($(CONFIG_SECCOMP),)
-DEFAULT_PACKAGES+=procd-seccomp
-endif
-
-# For the basic set
+##@
+# @brief Default packages for @DEVICE_TYPE basic.
+##
 DEFAULT_PACKAGES.basic:=
-# For nas targets
+##@
+# @brief Default packages for @DEVICE_TYPE nas.
+##
 DEFAULT_PACKAGES.nas:=\
 	block-mount \
 	fdisk \
 	lsblk \
 	mdadm
-# For router targets
+##@
+# @brief Default packages for @DEVICE_TYPE router.
+##
 DEFAULT_PACKAGES.router:=\
 	dnsmasq \
 	firewall4 \
@@ -68,7 +65,7 @@ endif
 
 target_conf=$(subst .,_,$(subst -,_,$(subst /,_,$(1))))
 ifeq ($(DUMP),)
-  PLATFORM_DIR:=$(TOPDIR)/target/linux/$(BOARD)
+  PLATFORM_DIR:=$(firstword $(wildcard $(TOPDIR)/target/linux/feeds/$(BOARD) $(TOPDIR)/target/linux/$(BOARD)))
   SUBTARGET:=$(strip $(foreach subdir,$(patsubst $(PLATFORM_DIR)/%/target.mk,%,$(wildcard $(PLATFORM_DIR)/*/target.mk)),$(if $(CONFIG_TARGET_$(call target_conf,$(BOARD)_$(subdir))),$(subdir))))
 else
   PLATFORM_DIR:=${CURDIR}
@@ -93,11 +90,25 @@ else
   endif
 endif
 
+# include ujail on systems with enough storage
+ifeq ($(filter small_flash,$(FEATURES)),)
+  DEFAULT_PACKAGES+=procd-ujail
+endif
+
+# legacy-sdcard upgrades need partx after writing the full image
+ifneq ($(filter legacy-sdcard,$(FEATURES)),)
+  DEFAULT_PACKAGES+=partx-utils
+endif
+
 # Add device specific packages (here below to allow device type set from subtarget)
 DEFAULT_PACKAGES += $(DEFAULT_PACKAGES.$(DEVICE_TYPE))
 
+##@
+# @brief Filter out packages, prepended with `-`.
+#
+# @param 1: Package list.
+##
 filter_packages = $(filter-out -% $(patsubst -%,%,$(filter -%,$(1))),$(1))
-extra_packages = $(if $(filter wpad wpad-% nas,$(1)),iwinfo)
 
 define ProfileDefault
   NAME:=
@@ -115,7 +126,7 @@ define Profile
 	echo "Target-Profile: $(1)"; \
 	$(if $(PRIORITY), echo "Target-Profile-Priority: $(PRIORITY)"; ) \
 	echo "Target-Profile-Name: $(NAME)"; \
-	echo "Target-Profile-Packages: $(PACKAGES) $(call extra_packages,$(DEFAULT_PACKAGES) $(PACKAGES))"; \
+	echo "Target-Profile-Packages: $(PACKAGES)"; \
 	echo "Target-Profile-Description:"; \
 	echo "$$$$$$$$$(call shvar,Profile/$(1)/Description)"; \
 	echo "@@"; \
@@ -142,11 +153,12 @@ ifeq ($(TARGET_BUILD),1)
   endif
 endif
 
+GENERIC_PLATFORM_DIR := $(TOPDIR)/target/linux/generic
+
 ifneq ($(TARGET_BUILD)$(if $(DUMP),,1),)
   include $(INCLUDE_DIR)/kernel-version.mk
 endif
 
-GENERIC_PLATFORM_DIR := $(TOPDIR)/target/linux/generic
 GENERIC_BACKPORT_DIR := $(GENERIC_PLATFORM_DIR)/backport$(if $(wildcard $(GENERIC_PLATFORM_DIR)/backport-$(KERNEL_PATCHVER)),-$(KERNEL_PATCHVER))
 GENERIC_PATCH_DIR := $(GENERIC_PLATFORM_DIR)/pending$(if $(wildcard $(GENERIC_PLATFORM_DIR)/pending-$(KERNEL_PATCHVER)),-$(KERNEL_PATCHVER))
 GENERIC_HACK_DIR := $(GENERIC_PLATFORM_DIR)/hack$(if $(wildcard $(GENERIC_PLATFORM_DIR)/hack-$(KERNEL_PATCHVER)),-$(KERNEL_PATCHVER))
@@ -173,22 +185,30 @@ USE_SUBTARGET_CONFIG = $(if $(wildcard $(LINUX_TARGET_CONFIG)),,$(if $(LINUX_SUB
 LINUX_RECONFIG_LIST = $(wildcard $(GENERIC_LINUX_CONFIG) $(LINUX_TARGET_CONFIG) $(if $(USE_SUBTARGET_CONFIG),$(LINUX_SUBTARGET_CONFIG)))
 LINUX_RECONFIG_TARGET = $(if $(USE_SUBTARGET_CONFIG),$(LINUX_SUBTARGET_CONFIG),$(LINUX_TARGET_CONFIG))
 
+CFG_TARGET = $(CONFIG_TARGET)
+ifeq ($(CFG_TARGET),platform)
+  CFG_TARGET = target
+  $(warning Deprecation warning: use CONFIG_TARGET=target instead.)
+else ifeq ($(CFG_TARGET),subtarget_platform)
+  CFG_TARGET = subtarget_target
+  $(warning Deprecation warning: use CONFIG_TARGET=subtarget_target instead.)
+endif
+
 # select the config file to be changed by kernel_menuconfig/kernel_oldconfig
-ifeq ($(CONFIG_TARGET),platform)
+ifeq ($(CFG_TARGET),target)
   LINUX_RECONFIG_LIST = $(wildcard $(GENERIC_LINUX_CONFIG) $(LINUX_TARGET_CONFIG))
   LINUX_RECONFIG_TARGET = $(LINUX_TARGET_CONFIG)
-endif
-ifeq ($(CONFIG_TARGET),subtarget)
+else ifeq ($(CFG_TARGET),subtarget)
   LINUX_RECONFIG_LIST = $(wildcard $(GENERIC_LINUX_CONFIG) $(LINUX_TARGET_CONFIG) $(LINUX_SUBTARGET_CONFIG))
   LINUX_RECONFIG_TARGET = $(LINUX_SUBTARGET_CONFIG)
-endif
-ifeq ($(CONFIG_TARGET),subtarget_platform)
+else ifeq ($(CFG_TARGET),subtarget_target)
   LINUX_RECONFIG_LIST = $(wildcard $(GENERIC_LINUX_CONFIG) $(LINUX_SUBTARGET_CONFIG) $(LINUX_TARGET_CONFIG))
   LINUX_RECONFIG_TARGET = $(LINUX_TARGET_CONFIG)
-endif
-ifeq ($(CONFIG_TARGET),env)
+else ifeq ($(CFG_TARGET),env)
   LINUX_RECONFIG_LIST = $(LINUX_KCONFIG_LIST)
   LINUX_RECONFIG_TARGET = $(TOPDIR)/env/kernel-config
+else ifneq ($(strip $(CFG_TARGET)),)
+  $(error CONFIG_TARGET=$(CFG_TARGET) is invalid. Valid: target|subtarget|subtarget_target|env)
 endif
 
 __linux_confcmd = $(2) $(patsubst %,+,$(wordlist 2,9999,$(1))) $(1)
@@ -223,10 +243,20 @@ ifeq ($(DUMP),1)
   endif
   ifneq ($(findstring arm,$(ARCH)),)
     CPU_TYPE ?= xscale
+    ifneq ($(filter arm1136j-s arm1136jf-s arm1156t2-s,$(CPU_TYPE)),)
+      FEATURES += arm_v6
+    endif
+    ifneq ($(filter arm1176jz-s arm1176jzf-s mpcore mpcorenovfp,$(CPU_TYPE)),)
+      FEATURES += arm_v6k
+    endif
+    ifneq ($(filter cortex-a% generic-armv7-a marvell-pj4,$(CPU_TYPE)),)
+      FEATURES += arm_v7
+    endif
   endif
   ifeq ($(ARCH),powerpc)
     CPU_CFLAGS_603e:=-mcpu=603e
     CPU_CFLAGS_8540:=-mcpu=8540
+    CPU_CFLAGS_8548:=-mcpu=8548
     CPU_CFLAGS_405:=-mcpu=405
     CPU_CFLAGS_440:=-mcpu=440
     CPU_CFLAGS_464fp:=-mcpu=464fp
@@ -236,20 +266,21 @@ ifeq ($(DUMP),1)
     CPU_CFLAGS_e5500:=-mcpu=e5500
     CPU_CFLAGS_powerpc64:=-mcpu=powerpc64
   endif
-  ifeq ($(ARCH),sparc)
-    CPU_TYPE = sparc
-    CPU_CFLAGS_ultrasparc = -mcpu=ultrasparc
-  endif
   ifeq ($(ARCH),aarch64)
     CPU_TYPE ?= generic
     CPU_CFLAGS_generic = -mcpu=generic
     CPU_CFLAGS_cortex-a53 = -mcpu=cortex-a53
+    CPU_CFLAGS_cortex-a72 = -mcpu=cortex-a72
+    CPU_CFLAGS_cortex-a76 = -mcpu=cortex-a76
   endif
-  ifeq ($(ARCH),arc)
-    CPU_TYPE ?= arc700
-    CPU_CFLAGS += -matomic
-    CPU_CFLAGS_arc700 = -mcpu=arc700
-    CPU_CFLAGS_archs = -mcpu=archs
+  ifeq ($(ARCH),riscv64)
+    CPU_TYPE ?= generic
+    CPU_CFLAGS_generic:=-mabi=lp64d -march=rv64gc
+  endif
+  ifeq ($(ARCH),loongarch64)
+    CPU_TYPE ?= generic
+    CPU_CFLAGS := -O2 -pipe
+    CPU_CFLAGS_generic:=-march=loongarch64
   endif
   ifneq ($(CPU_TYPE),)
     ifndef CPU_CFLAGS_$(CPU_TYPE)
@@ -274,7 +305,7 @@ ifeq ($(DUMP),1)
     ifneq ($(CONFIG_OF),)
       FEATURES += dt
     endif
-    ifneq ($(CONFIG_GENERIC_GPIO)$(CONFIG_GPIOLIB),)
+    ifneq ($(CONFIG_GPIOLIB),)
       FEATURES += gpio
     endif
     ifneq ($(CONFIG_PCI),)
@@ -283,6 +314,18 @@ ifeq ($(DUMP),1)
     ifneq ($(CONFIG_PCIEPORTBUS),)
       FEATURES += pcie
     endif
+    ifneq ($(CONFIG_PINCTRL),)
+      FEATURES += pinctrl
+    endif
+    ifneq ($(CONFIG_PM),)
+      FEATURES += pm
+    endif
+    ifneq ($(CONFIG_PWM),)
+      FEATURES += pwm
+    endif
+    ifneq ($(CONFIG_REGULATOR),)
+      FEATURES += regulator
+    endif
     ifneq ($(CONFIG_USB)$(CONFIG_USB_SUPPORT),)
       ifneq ($(CONFIG_USB_ARCH_HAS_HCD)$(CONFIG_USB_EHCI_HCD),)
         FEATURES += usb
@@ -290,9 +333,6 @@ ifeq ($(DUMP),1)
     endif
     ifneq ($(CONFIG_PCMCIA)$(CONFIG_PCCARD),)
       FEATURES += pcmcia
-    endif
-    ifneq ($(CONFIG_VGA_CONSOLE)$(CONFIG_FB),)
-      FEATURES += display
     endif
     ifneq ($(CONFIG_RTC_CLASS),)
       FEATURES += rtc
@@ -303,7 +343,6 @@ ifeq ($(DUMP),1)
     ifneq ($(CONFIG_CPU_MIPS32_R2),)
       FEATURES += mips16
     endif
-    FEATURES += $(foreach v,6 7,$(if $(CONFIG_CPU_V$(v)),arm_v$(v)))
 
     # remove duplicates
     FEATURES:=$(sort $(FEATURES))
@@ -317,7 +356,7 @@ endif
 
 define BuildTargets/DumpCurrent
   .PHONY: dumpinfo
-  dumpinfo : export DESCRIPTION=$$(Target/Description)
+  dumpinfo: $(call shexport,Target/Description)
   dumpinfo:
 	@echo 'Target: $(TARGETID)'; \
 	 echo 'Target-Board: $(BOARD)'; \
@@ -334,12 +373,13 @@ define BuildTargets/DumpCurrent
 	 echo 'Linux-Kernel-Arch: $(LINUX_KARCH)'; \
 	$(if $(SUBTARGET),,$(if $(DEFAULT_SUBTARGET), echo 'Default-Subtarget: $(DEFAULT_SUBTARGET)'; )) \
 	 echo 'Target-Description:'; \
-	 echo "$$$$DESCRIPTION"; \
+	 echo "$$$$$(call shvar,Target/Description);"; \
 	 echo '@@'; \
-	 echo 'Default-Packages: $(DEFAULT_PACKAGES) $(call extra_packages,$(DEFAULT_PACKAGES))'; \
+	 $(if $(DEFAULT_PROFILE),echo 'Target-Default-Profile: $(DEFAULT_PROFILE)';) \
+	 echo 'Default-Packages: $(DEFAULT_PACKAGES)'; \
 	 $(DUMPINFO)
 	$(if $(CUR_SUBTARGET),$(SUBMAKE) -r --no-print-directory -C image -s DUMP=1 SUBTARGET=$(CUR_SUBTARGET))
-	$(if $(SUBTARGET),,@$(foreach SUBTARGET,$(SUBTARGETS),$(SUBMAKE) -s DUMP=1 SUBTARGET=$(SUBTARGET); ))
+	$(if $(SUBTARGET),,@$(foreach SUBTARGET,$(SUBTARGETS),$(SUBMAKE) --no-print-directory -s DUMP=1 SUBTARGET=$(SUBTARGET); ))
 endef
 
 include $(INCLUDE_DIR)/kernel.mk

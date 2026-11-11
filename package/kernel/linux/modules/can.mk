@@ -13,14 +13,12 @@ define KernelPackage/can
   KCONFIG:=\
 	CONFIG_CAN=m \
 	CONFIG_CAN_DEV \
+	CONFIG_CAN_NETLINK=y \
 	CONFIG_CAN_CALC_BITTIMING=y \
-	CONFIG_CAN_LEDS=y \
 	CONFIG_CAN_AT91=n \
 	CONFIG_CAN_TI_HECC=n \
 	CONFIG_CAN_MCP251X=n \
-	CONFIG_CAN_BFIN=n \
 	CONFIG_CAN_JANZ_ICAN3=n \
-	CONFIG_PCH_CAN=n \
 	CONFIG_CAN_GRCAN=n \
 	CONFIG_CAN_CC770=n \
 	CONFIG_CAN_MSCAN=n \
@@ -119,7 +117,7 @@ $(eval $(call KernelPackage,can-c-can-platform))
 define KernelPackage/can-flexcan
   TITLE:=Support for Freescale FLEXCAN based chips
   KCONFIG:=CONFIG_CAN_FLEXCAN
-  FILES:=$(LINUX_DIR)/drivers/net/can/flexcan.ko
+  FILES:=$(LINUX_DIR)/drivers/net/can/flexcan/flexcan.ko
   AUTOLOAD:=$(call AutoProbe,flexcan)
   $(call AddDepends/can,@TARGET_imx)
 endef
@@ -152,7 +150,7 @@ define KernelPackage/can-mcp251x
 	CONFIG_SPI=y \
 	CONFIG_CAN_MCP251X
   FILES:=$(LINUX_DIR)/drivers/net/can/spi/mcp251x.ko
-  AUTOLOAD:=$(call AutoProbe,can-mcp251x)
+  AUTOLOAD:=$(call AutoProbe,mcp251x)
   $(call AddDepends/can)
 endef
 
@@ -161,6 +159,25 @@ define KernelPackage/can-mcp251x/description
 endef
 
 $(eval $(call KernelPackage,can-mcp251x))
+
+
+define KernelPackage/can-mcp251xfd
+  TITLE:=MCP251xFD SPI CAN FD controller
+  KCONFIG:=\
+	CONFIG_SPI=y \
+	CONFIG_CAN_MCP251XFD \
+	CONFIG_CAN_MCP251XFD_SANITY=n
+  FILES:=$(LINUX_DIR)/drivers/net/can/spi/mcp251xfd/mcp251xfd.ko
+  AUTOLOAD:=$(call AutoProbe,mcp251xfd)
+  DEPENDS:=+kmod-regmap-core
+  $(call AddDepends/can)
+endef
+
+define KernelPackage/can-mcp251xfd/description
+ Microchip MCP2517FD, MCP2518FD and MCP251863 SPI CAN FD controllers
+endef
+
+$(eval $(call KernelPackage,can-mcp251xfd))
 
 
 define KernelPackage/can-raw
@@ -182,7 +199,7 @@ $(eval $(call KernelPackage,can-raw))
 define KernelPackage/can-slcan
   TITLE:=Serial / USB serial CAN Adaptors (slcan)
   KCONFIG:=CONFIG_CAN_SLCAN
-  FILES:=$(LINUX_DIR)/drivers/net/can/slcan.ko
+  FILES:=$(LINUX_DIR)/drivers/net/can/slcan/slcan.ko
   AUTOLOAD:=$(call AutoProbe,slcan)
   $(call AddDepends/can)
 endef
@@ -230,9 +247,9 @@ $(eval $(call KernelPackage,can-usb-ems))
 
 define KernelPackage/can-usb-esd
   TITLE:=ESD USB/2 CAN/USB interface
-  KCONFIG:=CONFIG_CAN_ESD_USB2
-  FILES:=$(LINUX_DIR)/drivers/net/can/usb/esd_usb2.ko
-  AUTOLOAD:=$(call AutoProbe,esd_usb2)
+  KCONFIG:=CONFIG_CAN_ESD_USB
+  FILES:=$(LINUX_DIR)/drivers/net/can/usb/esd_usb.ko
+  AUTOLOAD:=$(call AutoProbe,esd_usb)
   $(call AddDepends/can,+kmod-usb-core)
 endef
 
@@ -242,6 +259,25 @@ define KernelPackage/can-usb-esd/description
 endef
 
 $(eval $(call KernelPackage,can-usb-esd))
+
+
+define KernelPackage/can-usb-gs
+  TITLE:=Geschwister Schneider UG interfaces
+  KCONFIG:=CONFIG_CAN_GS_USB
+  FILES:= \
+	$(LINUX_DIR)/drivers/net/can/usb/gs_usb.ko
+  AUTOLOAD:=$(call AutoProbe,gs_usb)
+  $(call AddDepends/can,+kmod-usb-core)
+endef
+
+define KernelPackage/can-usb-gsr/description
+  This driver supports the Geschwister Schneider and
+  bytewerk.org candleLight compatible
+  (https://github.com/candle-usb/candleLight_fw) USB/CAN
+  interfaces.
+endef
+
+$(eval $(call KernelPackage,can-usb-gs))
 
 
 define KernelPackage/can-usb-kvaser
@@ -291,6 +327,22 @@ define KernelPackage/can-vcan/description
 endef
 
 $(eval $(call KernelPackage,can-vcan))
+
+
+define KernelPackage/can-vxcan
+  TITLE:=Virtual CAN Tunnel (vxcan)
+  KCONFIG:=CONFIG_CAN_VXCAN
+  FILES:=$(LINUX_DIR)/drivers/net/can/vxcan.ko
+  AUTOLOAD:=$(call AutoProbe,vxcan)
+  $(call AddDepends/can)
+endef
+
+define KernelPackage/can-vxcan/description
+ Similar to the virtual ethernet driver veth, vxcan implements a
+ local CAN traffic tunnel between two virtual CAN network devices.
+endef
+
+$(eval $(call KernelPackage,can-vxcan))
 
 define KernelPackage/can-xilinx-can
   TITLE:=Xilinx CAN IP

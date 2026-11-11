@@ -1,12 +1,20 @@
 PKG_NAME ?= trusted-firmware-a
-PKG_CPE_ID ?= cpe:/a:arm:arm_trusted_firmware
+PKG_CPE_ID ?= cpe:/a:arm:trusted_firmware-a
 
-ifndef PKG_SOURCE_PROTO
-PKG_SOURCE = trusted-firmware-a-$(PKG_VERSION).tar.gz
-PKG_SOURCE_URL:=https://git.trustedfirmware.org/TF-A/trusted-firmware-a.git/snapshot
+PKG_LTS ?=
+
+ifneq ($(PKG_LTS),)
+PKG_VERSION_PREFIX:=lts-v
+PKG_BUILD_DIR = $(BUILD_DIR)/$(PKG_NAME)-$(BUILD_VARIANT)/$(PKG_NAME)-$(PKG_VERSION_PREFIX)$(PKG_VERSION)
+else
+PKG_VERSION_PREFIX:=v
+PKG_BUILD_DIR = $(BUILD_DIR)/$(PKG_NAME)-$(BUILD_VARIANT)/$(PKG_NAME)-$(PKG_VERSION)
 endif
 
-PKG_BUILD_DIR = $(BUILD_DIR)/$(PKG_NAME)-$(BUILD_VARIANT)/$(PKG_NAME)-$(PKG_VERSION)
+ifndef PKG_SOURCE_PROTO
+PKG_SOURCE = trusted-firmware-a-$(PKG_VERSION_PREFIX)$(PKG_VERSION).tar.gz
+PKG_SOURCE_URL:=https://codeload.github.com/TrustedFirmware-A/trusted-firmware-a/tar.gz/$(PKG_VERSION_PREFIX)$(PKG_VERSION)?
+endif
 
 PKG_TARGETS := bin
 PKG_FLAGS:=nonshared
@@ -63,18 +71,33 @@ define Build/Trusted-Firmware-A/Target
     URL:=https://www.trustedfirmware.org/projects/tf-a/
   endef
 
-  define Package/trusted-firmware-a-$(1)/install
+  ifndef Package/trusted-firmware-a-$(1)/install
+    define Package/trusted-firmware-a-$(1)/install
 	$$(Package/trusted-firmware-a/install)
-  endef
+    endef
+  endif
 endef
 
+define Build/Configure/Trusted-Firmware-A
+	$(INSTALL_DIR) $(STAGING_DIR)/usr/include
+endef
+
+DTC=$(wildcard $(LINUX_DIR)/scripts/dtc/dtc)
+
+# TF-A embeds __TIME__ and __DATE__ by default, which makes the binaries
+# differ on every build.
+TFA_BUILD_TIMESTAMP=$(if $(PKG_SOURCE_DATE_EPOCH),$(shell LC_ALL=C perl -MPOSIX \
+	-e 'print strftime("%H:%M:%S, %b %e %Y", gmtime($(PKG_SOURCE_DATE_EPOCH)))'))
 
 define Build/Compile/Trusted-Firmware-A
-	+$(MAKE) $(PKG_JOBS) -C $(PKG_BUILD_DIR) \
+	+unset CC; \
+	$(MAKE) $(PKG_JOBS) -C $(PKG_BUILD_DIR) \
 		CROSS_COMPILE=$(TARGET_CROSS) \
 		OPENSSL_DIR=$(STAGING_DIR_HOST) \
+		$(if $(DTC),DTC="$(DTC)") \
 		PLAT=$(PLAT) \
-		BUILD_STRING="OpenWrt v$(PKG_VERSION)-$(PKG_RELEASE) ($(VARIANT))" \
+		BUILD_STRING="OpenWrt $(PKG_VERSION_PREFIX)$(PKG_VERSION)-$(PKG_RELEASE) ($(VARIANT))" \
+		$(if $(TFA_BUILD_TIMESTAMP),BUILD_MESSAGE_TIMESTAMP='"$(TFA_BUILD_TIMESTAMP)"') \
 		$(TFA_MAKE_FLAGS)
 endef
 

@@ -15,9 +15,9 @@ define KernelPackage/mmc-spi
           CONFIG_SPI=y \
           CONFIG_SPI_MASTER=y
   FILES:=\
-	$(if $(CONFIG_OF),$(LINUX_DIR)/drivers/mmc/host/of_mmc_spi.ko) \
+	$(LINUX_DIR)/drivers/mmc/host/of_mmc_spi.ko \
 	$(LINUX_DIR)/drivers/mmc/host/mmc_spi.ko
-  AUTOLOAD:=$(call AutoProbe,$(if $(CONFIG_OF),of_mmc_spi) mmc_spi)
+  AUTOLOAD:=$(call AutoProbe,of_mmc_spi mmc_spi)
 endef
 
 define KernelPackage/mmc-spi/description
@@ -73,3 +73,41 @@ define KernelPackage/spi-dev/description
 endef
 
 $(eval $(call KernelPackage,spi-dev))
+
+
+define KernelPackage/spi-dw
+  SUBMENU:=$(SPI_MENU)
+  TITLE:=DesignWare SPI controller driver (core)
+  KCONFIG:=\
+    CONFIG_SPI=y \
+    CONFIG_SPI_DESIGNWARE \
+    CONFIG_SPI_DYNAMIC=y \
+    CONFIG_SPI_MASTER=y
+  FILES:=\
+    $(LINUX_DIR)/drivers/spi/spi-dw.ko
+  AUTOLOAD:=$(call AutoProbe,spi-dw)
+endef
+
+define KernelPackage/spi-dw/description
+ This package contains the DesignWare SPI core driver.
+endef
+
+$(eval $(call KernelPackage,spi-dw))
+
+
+define KernelPackage/spi-dw-mmio
+  SUBMENU:=$(SPI_MENU)
+  TITLE:=DesignWare SPI controller driver (MMIO)
+  DEPENDS:=+kmod-spi-dw
+  KCONFIG:=\
+    CONFIG_SPI_DW_MMIO
+  FILES:=\
+    $(LINUX_DIR)/drivers/spi/spi-dw-mmio.ko
+  AUTOLOAD:=$(call AutoProbe,spi-dw-mmio)
+endef
+
+define KernelPackage/spi-dw-mmio/description
+ This package contains the DesignWare SPI MMIO driver.
+endef
+
+$(eval $(call KernelPackage,spi-dw-mmio))

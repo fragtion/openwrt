@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: (GPL-2.0-only OR MIT)
 
 /dts-v1/;
-#include <dt-bindings/input/input.h>
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+#include <dt-bindings/pinctrl/mt65xx.h>
 
 #include "mt7622.dtsi"
 #include "mt6380.dtsi"
@@ -79,8 +80,9 @@
 		};
 	};
 
-	memory {
+	memory@40000000 {
 		reg = <0 0x40000000 0 0x40000000>;
+		device_type = "memory";
 	};
 
 	reg_1p8v: regulator-1p8v {
@@ -110,10 +112,6 @@
 	};
 };
 
-&btif {
-	status = "okay";
-};
-
 &cir {
 	pinctrl-names = "default";
 	pinctrl-0 = <&irrx_pins>;
@@ -141,10 +139,14 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 
-		switch@0 {
+		switch@1f {
 			compatible = "mediatek,mt7531";
-			reg = <0>;
-			reset-gpios = <&pio 54 0>;
+			reg = <31>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			interrupt-parent = <&pio>;
+			interrupts = <53 IRQ_TYPE_LEVEL_HIGH>;
+			reset-gpios = <&pio 54 GPIO_ACTIVE_HIGH>;
 
 			ports {
 				#address-cells = <1>;
@@ -177,7 +179,6 @@
 
 				port@6 {
 					reg = <6>;
-					label = "cpu";
 					ethernet = <&gmac0>;
 					phy-mode = "2500base-x";
 
@@ -272,6 +273,11 @@
 			function = "flash";
 			groups = "snfi";
 		};
+
+		conf {
+			groups = "snfi";
+			drive-strength = <MTK_DRIVE_12mA>;
+		};
 	};
 
 	spic0_pins: spic0-pins {
@@ -332,17 +338,30 @@
 };
 
 &slot0 {
-	wmac1: mt7915@0,0 {
+	wmac1: wifi@0,0 {
+		compatible = "mediatek,mt76";
 		reg = <0x0000 0 0 0 0>;
 		ieee80211-freq-limit = <5000000 6000000>;
+		mediatek,disable-radar-background;
 	};
 };
 
-&snand {
-	mediatek,quad-spi;
+&bch {
+	status = "okay";
+};
+
+&snfi {
 	pinctrl-names = "default";
 	pinctrl-0 = <&serial_nand_pins>;
 	status = "okay";
+
+	snand: flash@0 {
+		compatible = "spi-nand";
+		reg = <0>;
+		spi-tx-bus-width = <4>;
+		spi-rx-bus-width = <4>;
+		nand-ecc-engine = <&snfi>;
+	};
 };
 
 &spi0 {

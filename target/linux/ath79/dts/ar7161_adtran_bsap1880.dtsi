@@ -4,6 +4,7 @@
 
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
+#include <dt-bindings/leds/common.h>
 
 / {
 	chosen {
@@ -23,22 +24,24 @@
 		wlan5g {
 			label = "green:wifi5g";
 			gpios = <&gpio 8 GPIO_ACTIVE_LOW>;
-			linux,default-trigger = "phy1tpt";
+			linux,default-trigger = "phy0tpt";
 		};
 
 		wlan2g {
 			label = "green:wifi2g";
 			gpios = <&gpio 7 GPIO_ACTIVE_LOW>;
-			linux,default-trigger = "phy0tpt";
+			linux,default-trigger = "phy1tpt";
 		};
 
 		led_status_green: status_green {
-			label = "green:status";
+			function = LED_FUNCTION_STATUS;
+			color = <LED_COLOR_ID_GREEN>;
 			gpios = <&gpio 5 GPIO_ACTIVE_LOW>;
 		};
 
 		led_status_yellow: status_yellow {
-			label = "yellow:status";
+			function = LED_FUNCTION_STATUS;
+			color = <LED_COLOR_ID_YELLOW>;
 			gpios = <&gpio 4 GPIO_ACTIVE_LOW>;
 		};
 	};
@@ -58,8 +61,6 @@
 &mdio0 {
 	status = "okay";
 
-	phy-mask = <0x1>;
-
 	phy0: ethernet-phy@0 {
 		reg = <0>;
 	};
@@ -74,6 +75,16 @@
 
 &pcie0 {
 	status = "okay";
+
+	wifi@11,0 { /* 2.4 GHz */
+		compatible = "pci168c,0027";
+		reg = <0x8800 0 0 0 0>;
+	};
+
+	wifi@12,0 { /* 5 GHz */
+		compatible = "pci168c,0027";
+		reg = <0x9000 0 0 0 0>;
+	};
 };
 
 &spi {
@@ -87,7 +98,8 @@
 		partitions {
 			#address-cells = <1>;
 			#size-cells = <1>;
-			compatible = "ecoscentric,redboot-fis-partitions";
+			compatible = "redboot-fis";
+			fis-index-block = <0xfd>;
 		};
 	};
 };

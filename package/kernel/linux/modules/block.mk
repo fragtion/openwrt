@@ -47,7 +47,7 @@ define KernelPackage/ata-ahci
   KCONFIG:=CONFIG_SATA_AHCI
   FILES:= \
     $(LINUX_DIR)/drivers/ata/ahci.ko
-  AUTOLOAD:=$(call AutoLoad,41,libahci ahci,1)
+  AUTOLOAD:=$(call AutoLoad,41,ahci,1)
   $(call AddDepends/ata)
 endef
 
@@ -64,8 +64,8 @@ define KernelPackage/ata-ahci-platform
   FILES:= \
     $(LINUX_DIR)/drivers/ata/ahci_platform.ko \
     $(LINUX_DIR)/drivers/ata/libahci_platform.ko
-  AUTOLOAD:=$(call AutoLoad,40,libahci libahci_platform ahci_platform,1)
-  $(call AddDepends/ata,@TARGET_ipq806x||TARGET_layerscape||TARGET_sunxi)
+  AUTOLOAD:=$(call AutoLoad,40,libahci_platform ahci_platform,1)
+  $(call AddDepends/ata,@TARGET_ipq806x||TARGET_layerscape||TARGET_rockchip||TARGET_sunxi)
 endef
 
 define KernelPackage/ata-ahci-platform/description
@@ -89,21 +89,18 @@ endef
 
 $(eval $(call KernelPackage,ata-artop))
 
-
-define KernelPackage/ata-marvell-sata
-  TITLE:=Marvell Serial ATA support
-  KCONFIG:=CONFIG_SATA_MV
-  FILES:=$(LINUX_DIR)/drivers/ata/sata_mv.ko
-  AUTOLOAD:=$(call AutoLoad,41,sata_mv,1)
-  $(call AddDepends/ata)
+define KernelPackage/ata-ahci-dwc
+  TITLE:=Synopsys DWC AHCI SATA
+  KCONFIG:= \
+	CONFIG_AHCI_DWC \
+	CONFIG_SATA_HOST=y
+  FILES:=$(LINUX_DIR)/drivers/ata/ahci_dwc.ko
+  DEPENDS:=+kmod-ata-ahci-platform
+  AUTOLOAD:=$(call AutoLoad,41,ahci_dwc,1)
+  $(call AddDepends/ata,@TARGET_rockchip)
 endef
 
-define KernelPackage/ata-marvell-sata/description
- SATA support for marvell chipsets
-endef
-
-$(eval $(call KernelPackage,ata-marvell-sata))
-
+$(eval $(call KernelPackage,ata-ahci-dwc))
 
 define KernelPackage/ata-nvidia-sata
   TITLE:=Nvidia Serial ATA support
@@ -228,7 +225,6 @@ define KernelPackage/dm
 	CONFIG_DM_UEVENT=n \
 	CONFIG_DM_DELAY=n \
 	CONFIG_DM_LOG_WRITES=n \
-	CONFIG_DM_MQ_DEFAULT=n \
 	CONFIG_DM_MULTIPATH=n \
 	CONFIG_DM_ZERO=n \
 	CONFIG_DM_SNAPSHOT=n \
@@ -243,7 +239,7 @@ define KernelPackage/dm
     $(LINUX_DIR)/drivers/md/dm-log.ko \
     $(LINUX_DIR)/drivers/md/dm-mirror.ko \
     $(LINUX_DIR)/drivers/md/dm-region-hash.ko
-  AUTOLOAD:=$(call AutoLoad,30,dm-mod dm-log dm-region-hash dm-mirror dm-crypt)
+  AUTOLOAD:=$(call AutoLoad,30,dm-mod dm-log dm-region-hash dm-mirror dm-crypt,1)
 endef
 
 define KernelPackage/dm/description
@@ -278,7 +274,7 @@ define KernelPackage/iscsi-initiator
 	CONFIG_INET \
 	CONFIG_SCSI_LOWLEVEL=y \
 	CONFIG_ISCSI_TCP \
-	CONFIG_SCSI_ISCSI_ATTRS=y
+	CONFIG_SCSI_ISCSI_ATTRS
   FILES:= \
 	$(LINUX_DIR)/drivers/scsi/iscsi_tcp.ko \
 	$(LINUX_DIR)/drivers/scsi/libiscsi.ko \
@@ -302,8 +298,7 @@ define KernelPackage/md-mod
   KCONFIG:= \
        CONFIG_MD=y \
        CONFIG_BLK_DEV_MD=m \
-       CONFIG_MD_AUTODETECT=y \
-       CONFIG_MD_FAULTY=n
+       CONFIG_MD_AUTODETECT=y
   FILES:=$(LINUX_DIR)/drivers/md/md-mod.ko
   AUTOLOAD:=$(call AutoLoad,27,md-mod)
 endef
@@ -383,7 +378,7 @@ $(eval $(call KernelPackage,md-raid10))
 
 
 define KernelPackage/md-raid456
-$(call KernelPackage/md/Depends,+kmod-lib-raid6 +kmod-lib-xor +kmod-lib-crc32c)
+$(call KernelPackage/md/Depends,+kmod-lib-raid6 +kmod-lib-xor)
   TITLE:=RAID Level 456 Driver
   KCONFIG:= \
        CONFIG_ASYNC_CORE \
@@ -392,8 +387,7 @@ $(call KernelPackage/md/Depends,+kmod-lib-raid6 +kmod-lib-xor +kmod-lib-crc32c)
        CONFIG_ASYNC_PQ \
        CONFIG_ASYNC_RAID6_RECOV \
        CONFIG_ASYNC_RAID6_TEST=n \
-       CONFIG_MD_RAID456 \
-       CONFIG_MULTICORE_RAID456=n
+       CONFIG_MD_RAID456
   FILES:= \
 	$(LINUX_DIR)/crypto/async_tx/async_tx.ko \
 	$(LINUX_DIR)/crypto/async_tx/async_memcpy.ko \
@@ -421,21 +415,6 @@ endef
 $(eval $(call KernelPackage,md-raid456))
 
 
-define KernelPackage/md-multipath
-$(call KernelPackage/md/Depends,)
-  TITLE:=MD Multipath Module
-  KCONFIG:=CONFIG_MD_MULTIPATH
-  FILES:=$(LINUX_DIR)/drivers/md/multipath.ko
-  AUTOLOAD:=$(call AutoLoad,29,multipath)
-endef
-
-define KernelPackage/md-multipath/description
- Multipath driver module (multipath.ko)
-endef
-
-$(eval $(call KernelPackage,md-multipath))
-
-
 define KernelPackage/libsas
   SUBMENU:=$(BLOCK_MENU)
   DEPENDS:=@TARGET_x86
@@ -443,8 +422,7 @@ define KernelPackage/libsas
   KCONFIG:=CONFIG_SCSI_SAS_LIBSAS \
 	CONFIG_SCSI_SAS_ATTRS \
 	CONFIG_SCSI_SAS_ATA=y \
-	CONFIG_SCSI_SAS_HOST_SMP=y \
-	CONFIG_SCSI_SAS_LIBSAS_DEBUG=y
+	CONFIG_SCSI_SAS_HOST_SMP=y
   FILES:= \
 	$(LINUX_DIR)/drivers/scsi/scsi_transport_sas.ko \
 	$(LINUX_DIR)/drivers/scsi/libsas/libsas.ko
@@ -462,10 +440,9 @@ define KernelPackage/loop
   SUBMENU:=$(BLOCK_MENU)
   TITLE:=Loopback device support
   KCONFIG:= \
-	CONFIG_BLK_DEV_LOOP \
-	CONFIG_BLK_DEV_CRYPTOLOOP=n
+	CONFIG_BLK_DEV_LOOP
   FILES:=$(LINUX_DIR)/drivers/block/loop.ko
-  AUTOLOAD:=$(call AutoLoad,30,loop)
+  AUTOLOAD:=$(call AutoLoad,30,loop,1)
 endef
 
 define KernelPackage/loop/description
@@ -508,16 +485,41 @@ endef
 $(eval $(call KernelPackage,nbd))
 
 
+define KernelPackage/nvme
+  SUBMENU:=$(BLOCK_MENU)
+  TITLE:=NVM Express block device
+  DEPENDS:=@PCI_SUPPORT +kmod-hwmon-core
+  KCONFIG:= \
+	CONFIG_NVME_CORE \
+	CONFIG_BLK_DEV_NVME \
+	CONFIG_NVME_MULTIPATH=n \
+	CONFIG_NVME_HWMON=y
+  FILES:= \
+	$(LINUX_DIR)/drivers/nvme/host/nvme-core.ko \
+	$(LINUX_DIR)/drivers/nvme/host/nvme.ko
+  AUTOLOAD:=$(call AutoLoad,30,nvme-core nvme,1)
+endef
+
+define KernelPackage/nvme/description
+ Kernel module for NVM Express solid state drives directly
+ connected to the PCI or PCI Express bus.
+endef
+
+$(eval $(call KernelPackage,nvme))
+
+
 define KernelPackage/scsi-core
   SUBMENU:=$(BLOCK_MENU)
   TITLE:=SCSI device support
   KCONFIG:= \
 	CONFIG_SCSI \
+	CONFIG_SCSI_COMMON \
 	CONFIG_BLK_DEV_SD
   FILES:= \
 	$(LINUX_DIR)/drivers/scsi/scsi_mod.ko \
+	$(LINUX_DIR)/drivers/scsi/scsi_common.ko \
 	$(LINUX_DIR)/drivers/scsi/sd_mod.ko
-  AUTOLOAD:=$(call AutoLoad,40,scsi_mod sd_mod,1)
+  AUTOLOAD:=$(call AutoLoad,40,scsi_mod scsi_common sd_mod,1)
 endef
 
 $(eval $(call KernelPackage,scsi-core))
@@ -552,8 +554,7 @@ define KernelPackage/scsi-cdrom
   TITLE:=Kernel support for CD / DVD drives
   DEPENDS:=+kmod-scsi-core +kmod-cdrom
   KCONFIG:= \
-    CONFIG_BLK_DEV_SR \
-    CONFIG_BLK_DEV_SR_VENDOR=n
+    CONFIG_BLK_DEV_SR
   FILES:=$(LINUX_DIR)/drivers/scsi/sr_mod.ko
   AUTOLOAD:=$(call AutoLoad,45,sr_mod)
 endef

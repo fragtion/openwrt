@@ -12,7 +12,6 @@
 
 	gpio_export: gpio-export {
 		compatible = "gpio-export";
-		#size-cells = <0>;
 
 		watchdog-enable {
 			gpio-export,name = "watchdog-enable";
@@ -82,10 +81,26 @@
 				reg = <0x060000 0x010000>;
 			};
 
-			art: partition@70000 {
+			partition@70000 {
 				label = "art";
 				reg = <0x070000 0x010000>;
 				read-only;
+
+				nvmem-layout {
+					compatible = "fixed-layout";
+					#address-cells = <1>;
+					#size-cells = <1>;
+
+					cal_art_1000: cal@1000 {
+						reg = <0x1000 0x440>;
+					};
+
+					macaddr_art_1002: macaddr@1002 {
+						compatible = "mac-base";
+						reg = <0x1002 0x6>;
+						#nvmem-cell-cells = <1>;
+					};
+				};
 			};
 
 			partition@80000 {
@@ -99,22 +114,19 @@
 
 &usb0 {
 	status = "okay";
-
-	#address-cells = <1>;
-	#size-cells = <0>;
-
-	hub_port0: port@1 {
-		reg = <1>;
-		#trigger-source-cells = <0>;
-	};
 };
 
 &usb_phy {
 	status = "okay";
 };
 
+&wdt {
+	status = "disabled";
+};
+
 &wmac {
 	status = "okay";
 
-	mtd-cal-data = <&art 0x1000>;
+	nvmem-cells = <&cal_art_1000>, <&macaddr_art_1002 0>;
+	nvmem-cell-names = "calibration", "mac-address";
 };

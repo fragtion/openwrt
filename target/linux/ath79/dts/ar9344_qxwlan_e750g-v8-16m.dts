@@ -10,11 +10,9 @@
 &mdio0 {
 	status = "okay";
 
-	phy-mask = <0>;
-
-	phy0: ethernet-phy@0 {
-		reg = <0>;
-		phy-mode = "rgmii";
+	ethernet-switch@10 {
+		compatible = "qca,ar8327";
+		reg = <0x10>;
 
 		qca,ar8327-initvals = <
 			0x04 0x07600000 /* PORT0 PAD MODE CTRL */
@@ -33,11 +31,15 @@
 
 	pll-data = <0x06000000 0x00000101 0x00001616>;
 
-	nvmem-cells = <&macaddr_pridata_400>;
+	nvmem-cells = <&macaddr_pridata_400 0>;
 	nvmem-cell-names = "mac-address";
 
 	phy-mode = "rgmii";
-	phy-handle = <&phy0>;
+
+	fixed-link {
+		speed = <1000>;
+		full-duplex;
+	};
 };
 
 &partitions {
@@ -45,15 +47,5 @@
 		compatible = "denx,uimage";
 		label = "firmware";
 		reg = <0x070000 0xf90000>;
-	};
-};
-
-&pridata {
-	compatible = "nvmem-cells";
-	#address-cells = <1>;
-	#size-cells = <1>;
-
-	macaddr_pridata_400: macaddr@400 {
-		reg = <0x400 0x6>;
 	};
 };

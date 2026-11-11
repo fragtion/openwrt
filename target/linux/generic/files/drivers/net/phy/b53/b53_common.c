@@ -227,7 +227,7 @@ static void b53_set_vlan_entry(struct b53_device *dev, u16 vid, u16 members,
 	}
 }
 
-void b53_set_forwarding(struct b53_device *dev, int enable)
+static void b53_set_forwarding(struct b53_device *dev, int enable)
 {
 	u8 mgmt;
 
@@ -488,12 +488,12 @@ static void b53_switch_reset_gpio(struct b53_device *dev)
 
 static int b53_configure_ports_of(struct b53_device *dev)
 {
-	struct device_node *dn, *pn;
+	struct device_node *dn;
 	u32 port_num;
 
 	dn = of_get_child_by_name(dev_of_node(dev->dev), "ports");
 
-	for_each_available_child_of_node(dn, pn) {
+	for_each_available_child_of_node_scoped(dn, pn) {
 		struct device_node *fixed_link;
 
 		if (of_property_read_u32(pn, "reg", &port_num))
@@ -506,15 +506,9 @@ static int b53_configure_ports_of(struct b53_device *dev)
 		if (fixed_link) {
 			u32 spd;
 			u8 po = GMII_PO_LINK;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 5, 0)
 			phy_interface_t mode;
-#else
-			int mode = of_get_phy_mode(pn);
-#endif
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 5, 0)
 			of_get_phy_mode(pn, &mode);
-#endif
 
 			if (!of_property_read_u32(fixed_link, "speed", &spd)) {
 				switch (spd) {
@@ -529,7 +523,7 @@ static int b53_configure_ports_of(struct b53_device *dev)
 						po |= PORT_OVERRIDE_SPEED_2000M;
 					else
 						po |= GMII_PO_SPEED_2000M;
-					/* fall through */
+					fallthrough;
 				case 1000:
 					po |= GMII_PO_SPEED_1000M;
 					break;
@@ -557,9 +551,11 @@ static int b53_configure_ports_of(struct b53_device *dev)
 				    mode == PHY_INTERFACE_MODE_REVMII) {
 					b53_read8(dev, B53_CTRL_PAGE,
 						  B53_PORT_OVERRIDE_CTRL, &po);
-					if (!(po & PORT_OVERRIDE_RV_MII_25))
-					pr_err("Failed to enable reverse MII mode\n");
-					return -EINVAL;
+					if (!(po & PORT_OVERRIDE_RV_MII_25)) {
+						pr_err("Failed to enable reverse MII mode\n");
+						of_node_put(dn);
+						return -EINVAL;
+					}
 				}
 			} else {
 				po |= GMII_PO_EN;
@@ -570,6 +566,7 @@ static int b53_configure_ports_of(struct b53_device *dev)
 		}
 	}
 
+	of_node_put(dn);
 	return 0;
 }
 
@@ -851,7 +848,7 @@ static int b53_vlan_set_ports(struct switch_dev *dev, struct switch_val *val)
 		if (!(port->flags & BIT(SWITCH_PORT_FLAG_TAGGED))) {
 			vlan->untag |= BIT(port->id);
 			priv->ports[port->id].pvid = val->port_vlan;
-		};
+		}
 	}
 
 	/* ignore disabled ports */
@@ -1483,7 +1480,7 @@ static const struct b53_chip_data b53_switch_chips[] = {
 
 static int b53_switch_init_of(struct b53_device *dev)
 {
-	struct device_node *dn, *pn;
+	struct device_node *dn;
 	const char *alias;
 	u32 port_num;
 	u16 ports = 0;
@@ -1492,7 +1489,7 @@ static int b53_switch_init_of(struct b53_device *dev)
 	if (!dn)
 		return -EINVAL;
 
-	for_each_available_child_of_node(dn, pn) {
+	for_each_available_child_of_node_scoped(dn, pn) {
 		const char *label;
 		int len;
 
@@ -1617,8 +1614,8 @@ static int b53_switch_init(struct b53_device *dev)
 	return b53_switch_reset(dev);
 }
 
-struct b53_device *b53_switch_alloc(struct device *base, struct b53_io_ops *ops,
-				    void *priv)
+struct b53_device *b53_swconfig_switch_alloc(struct device *base, struct b53_io_ops *ops,
+					     void *priv)
 {
 	struct b53_device *dev;
 
@@ -1633,9 +1630,9 @@ struct b53_device *b53_switch_alloc(struct device *base, struct b53_io_ops *ops,
 
 	return dev;
 }
-EXPORT_SYMBOL(b53_switch_alloc);
+EXPORT_SYMBOL(b53_swconfig_switch_alloc);
 
-int b53_switch_detect(struct b53_device *dev)
+int b53_swconfig_switch_detect(struct b53_device *dev)
 {
 	u32 id32;
 	u16 tmp;
@@ -1700,9 +1697,9 @@ int b53_switch_detect(struct b53_device *dev)
 		return b53_read8(dev, B53_MGMT_PAGE, B53_REV_ID,
 				 &dev->core_rev);
 }
-EXPORT_SYMBOL(b53_switch_detect);
+EXPORT_SYMBOL(b53_swconfig_switch_detect);
 
-int b53_switch_register(struct b53_device *dev)
+int b53_swconfig_switch_register(struct b53_device *dev)
 {
 	int ret;
 
@@ -1712,7 +1709,7 @@ int b53_switch_register(struct b53_device *dev)
 		dev->sw_dev.alias = dev->pdata->alias;
 	}
 
-	if (!dev->chip_id && b53_switch_detect(dev))
+	if (!dev->chip_id && b53_swconfig_switch_detect(dev))
 		return -EINVAL;
 
 	ret = b53_switch_init(dev);
@@ -1723,7 +1720,7 @@ int b53_switch_register(struct b53_device *dev)
 
 	return register_switch(&dev->sw_dev, NULL);
 }
-EXPORT_SYMBOL(b53_switch_register);
+EXPORT_SYMBOL(b53_swconfig_switch_register);
 
 MODULE_AUTHOR("Jonas Gorski <jogo@openwrt.org>");
 MODULE_DESCRIPTION("B53 switch library");

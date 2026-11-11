@@ -19,6 +19,7 @@ FAT32_BLOCKS:=$(shell echo \
   $$(($(AT91_SD_BOOT_PARTSIZE)*1024*1024/$(FAT32_BLOCK_SIZE))))
 
 define Device/Default
+  DEVICE_DTS_DIR := $(DTS_DIR)/microchip
   $(Device/default-nand)
   PROFILES := Default
   FILESYSTEMS := squashfs ubifs ext4
@@ -43,6 +44,7 @@ define Device/evaluation
   KERNEL_SUFFIX := -uImage
   IMAGES := root.ubi
   IMAGE/root.ubi := append-ubi
+  FILESYSTEMS/root.ubi := squashfs ubifs
 endef
 
 define Device/evaluation-zImage
@@ -67,6 +69,7 @@ define Device/production
   UBINIZE_OPTS := -E 5
   IMAGES := factory.bin
   IMAGE/factory.bin := append-kernel | pad-to $$$$(KERNEL_SIZE) | append-ubi
+  FILESYSTEMS/factory.bin := squashfs ubifs
 endef
 
 define Device/production-dtb

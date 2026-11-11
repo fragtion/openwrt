@@ -8,17 +8,14 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=b43-tools
-PKG_DATE:=2017-09-13
+PKG_DATE:=2026-09-27
 
-PKG_SOURCE_URL:=https://github.com/mbuesch/b43-tools.git
 PKG_SOURCE_PROTO:=git
-PKG_SOURCE_SUBDIR:=$(PKG_NAME)
-PKG_SOURCE_VERSION:=27892ef741e7f1d08cb939744f8b8f5dac7b04ae
-PKG_MIRROR_HASH:=f914c36ac566e9e3b5a3a04de16ddb014fcad6a1cf25cdd8e4825c708d28d3f4
-HOST_BUILD_DIR=$(BUILD_DIR_HOST)/$(PKG_NAME)
+PKG_SOURCE_URL:=https://github.com/mbuesch/b43-tools.git
+PKG_MIRROR_HASH:=0827f9207bd494b011b073c5905759541d0dfe6ddf20b056cca3c88986a1fdf7
+PKG_SOURCE_VERSION:=36284a5731daae15d345c67248c3205e59f780a7
 
 include $(INCLUDE_DIR)/host-build.mk
-
 
 define Host/Compile
 	+$(MAKE) $(HOST_JOBS) -C $(HOST_BUILD_DIR)/fwcutter \
@@ -26,7 +23,7 @@ define Host/Compile
 		$(HOST_MAKE_FLAGS) \
 		$(1) QUIET_SPARSE=:
 	+$(MAKE) $(HOST_JOBS) -C $(HOST_BUILD_DIR)/assembler \
-		CFLAGS="$(HOST_CFLAGS) -include endian.h" \
+		CFLAGS="$(HOST_CFLAGS) -include endian.h -Wno-error=int-conversion" \
 		$(HOST_MAKE_FLAGS) \
 		LDFLAGS= \
 		$(1) QUIET_SPARSE=:

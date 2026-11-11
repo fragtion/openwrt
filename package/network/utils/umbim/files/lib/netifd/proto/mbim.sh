@@ -14,10 +14,32 @@ proto_mbim_init_config() {
 	proto_config_add_string apn
 	proto_config_add_string pincode
 	proto_config_add_string delay
+	proto_config_add_boolean allow_roaming
+	proto_config_add_boolean allow_partner
 	proto_config_add_string auth
 	proto_config_add_string username
 	proto_config_add_string password
+	[ -e /proc/sys/net/ipv6 ] && proto_config_add_string ipv6
+	proto_config_add_string devpath
+	proto_config_add_string dhcp
+	proto_config_add_string dhcpv6
+	proto_config_add_boolean sourcefilter
+	proto_config_add_boolean delegate
+	proto_config_add_string pdptype
+	proto_config_add_int mtu
 	proto_config_add_defaults
+}
+
+_proto_mbim_get_field() {
+        local field="$1"
+        shift
+        local mbimconfig="$@"
+        echo "$mbimconfig" | while read -r line; do
+                variable=${line%%:*}
+                [ "$variable" = "$field" ] || continue;
+                value=${line##* }
+                echo -n "$value "
+        done
 }
 
 _proto_mbim_setup() {
@@ -25,10 +47,42 @@ _proto_mbim_setup() {
 	local tid=2
 	local ret
 
-	local device apn pincode delay $PROTO_DEFAULT_OPTIONS
-	json_get_vars device apn pincode delay auth username password $PROTO_DEFAULT_OPTIONS
+	local allow_partner allow_roaming apn auth delay device devpath password pincode username
+	json_get_vars allow_partner allow_roaming apn auth delay device devpath password pincode username
+
+	local dhcp dhcpv6 pdptype
+	json_get_vars dhcp dhcpv6 pdptype
+
+	local delegate ip4table ip6table mtu sourcefilter $PROTO_DEFAULT_OPTIONS
+	json_get_vars delegate ip4table ip6table mtu sourcefilter $PROTO_DEFAULT_OPTIONS
+
+	[ ! -e /proc/sys/net/ipv6 ] && ipv6=0 || json_get_var ipv6 ipv6
 
 	[ -n "$ctl_device" ] && device=$ctl_device
+
+	if [ -n "$devpath" ]; then
+		local usbmisc_or_wwan_path
+		# For usbmisc:
+		# /sys/devices/platform/1e1c0000.xhci/usb1/1-2/1-2:1.4/usbmisc/cdc-wdm0
+		# Numbers after ":" are the configuration and interface number
+		# of the connected modem. There can be multiple interfaces but
+		# there will only be a single interface that provides the
+		# control channel device. Therefore, check also /*/usbmisc to
+		# allow specifying the USB port number the modem is directly
+		# connected to.
+		# For wwan:
+		# /sys/devices/platform/soc/11280000.pcie/pci0003:00/0003:00:00.0/0003:01:00.0/wwan/wwan0/wwan0mbim0
+		# /sys/devices/platform/soc/11280000.pcie/pci0003:00/0003:00:00.0/0003:01:00.0/mhi0/wwan/wwan0/wwan0mbim0
+		for usbmisc_or_wwan_path in \
+		    "$devpath"/usbmisc/cdc-wdm* \
+		    "$devpath"/*/usbmisc/cdc-wdm* \
+		    "$devpath"/*/wwan[0-9]*/wwan[0-9]*mbim* \
+		    "$devpath"/*/*/wwan[0-9]*/wwan[0-9]*mbim*; do
+			[ ! -e "$usbmisc_or_wwan_path" ] && continue
+			device="/dev/${usbmisc_or_wwan_path##*/}"
+			break
+		done
+	fi
 
 	[ -n "$device" ] || {
 		echo "mbim[$$]" "No control device specified"
@@ -44,7 +98,7 @@ _proto_mbim_setup() {
 	}
 
 	devname="$(basename "$device")"
-	devpath="$(readlink -f /sys/class/usbmisc/$devname/device/)"
+	devpath="$(readlink -f /sys/class/usbmisc/$devname/device/ || readlink -f /sys/class/wwan/$devname/device/)"
 	ifname="$( ls "$devpath"/net )"
 
 	[ -n "$ifname" ] || {
@@ -108,14 +162,31 @@ _proto_mbim_setup() {
 	tid=$((tid + 1))
 
 	echo "mbim[$$]" "Register with network"
-	umbim $DBG -n -t $tid -d $device registration || {
-		echo "mbim[$$]" "Subscriber registration failed"
+	connected=0
+	umbim $DBG -n -t $tid -d $device registration
+	reg_status=$?
+	case $reg_status in
+		0)	echo "mbim[$$]" "Registered in home mode"
+			tid=$((tid + 1))
+			connected=1;;
+		4)	if [ "$allow_roaming" = "1" ]; then
+				echo "mbim[$$]" "Registered in roaming mode"
+				tid=$((tid + 1))
+				connected=1
+			fi;;
+		5) 	if [ "$allow_partner" = "1" ]; then
+				echo "mbim[$$]" "Registered in partner mode"
+				tid=$((tid + 1))
+				connected=1
+			fi;;
+	esac
+	if [ $connected -ne 1 ]; then
+		echo "mbim[$$]" "Subscriber registration failed (code $reg_status)"
 		tid=$((tid + 1))
 		umbim $DBG -t $tid -d "$device" disconnect
 		proto_notify_error "$interface" NO_REGISTRATION
 		return 1
-	}
-	tid=$((tid + 1))
+	fi
 
 	echo "mbim[$$]" "Attach to network"
 	umbim $DBG -n -t $tid -d $device attach || {
@@ -127,35 +198,135 @@ _proto_mbim_setup() {
 	}
 	tid=$((tid + 1))
 
+	pdptype=$(echo "$pdptype" | awk '{print tolower($0)}')
+	[ "$ipv6" = 0 ] && pdptype="ipv4"
+
+	local req_pdptype="" # Pass "default" PDP type to umbim if unconfigured
+	[ "$pdptype" = "ipv4" -o "$pdptype" = "ipv6" -o "$pdptype" = "ipv4v6" ] && req_pdptype="$pdptype:"
+
+	local connect_state
 	echo "mbim[$$]" "Connect to network"
-	while ! umbim $DBG -n -t $tid -d $device connect "$apn" "$auth" "$username" "$password"; do
+	connect_state=$(umbim $DBG -n -t $tid -d $device connect "$req_pdptype$apn" "$auth" "$username" "$password") || {
+		echo "mbim[$$]" "Failed to connect bearer"
 		tid=$((tid + 1))
-		sleep 1;
-	done
+		umbim $DBG -t $tid -d "$device" disconnect
+		proto_notify_error "$interface" CONNECT_FAILED
+		return 1
+	}
 	tid=$((tid + 1))
 
-	uci_set_state network $interface tid "$tid"
+	echo "$connect_state"
+	local iptype="$(echo "$connect_state" | grep iptype: | awk '{print $4}')"
 
-	echo "mbim[$$]" "Connected, starting DHCP"
+	echo "mbim[$$]" "Connected"
+
+	local zone="$(fw3 -q network "$interface" 2>/dev/null)"
+
+	echo "mbim[$$]" "Setting up $ifname"
+	local mbimconfig="$(umbim $DBG -n -t $tid -d $device config)"
+	echo "$mbimconfig"
+	tid=$((tid + 1))
+
 	proto_init_update "$ifname" 1
 	proto_send_update "$interface"
 
-	json_init
-	json_add_string name "${interface}_4"
-	json_add_string ifname "@$interface"
-	json_add_string proto "dhcp"
-	proto_add_dynamic_defaults
-	json_close_object
-	ubus call network add_dynamic "$(json_dump)"
+	[ -z "$dhcp" ] && dhcp="auto"
+	[ -z "$dhcpv6" ] && dhcpv6="auto"
 
-	json_init
-	json_add_string name "${interface}_6"
-	json_add_string ifname "@$interface"
-	json_add_string proto "dhcpv6"
-	json_add_string extendprefix 1
-	proto_add_dynamic_defaults
-	json_close_object
-	ubus call network add_dynamic "$(json_dump)"
+	[ "$iptype" != "ipv6" ] && {
+		json_init
+		json_add_string name "${interface}_4"
+		json_add_string ifname "@$interface"
+		ipv4address=$(_proto_mbim_get_field ipv4address "$mbimconfig")
+		if [ -n "$ipv4address" -a "$dhcp" != 1 ]; then
+			json_add_string proto "static"
+
+			json_add_array ipaddr
+			for address in $ipv4address; do
+				json_add_string "" "$address"
+			done
+			json_close_array
+
+			json_add_string gateway $(_proto_mbim_get_field ipv4gateway "$mbimconfig")
+		elif [ "$dhcp" != 0 ]; then
+			echo "mbim[$$]" "Starting DHCP on $ifname"
+			json_add_string proto "dhcp"
+		fi
+
+		[ "$dhcp" != 1 ] || {
+			json_add_array dns
+			for server in $(_proto_mbim_get_field ipv4dnsserver "$mbimconfig"); do
+				json_add_string "" "$server"
+			done
+			json_close_array
+		}
+
+		proto_add_dynamic_defaults
+		[ -n "$zone" ] && json_add_string zone "$zone"
+		[ -n "$ip4table" ] && json_add_string ip4table "$ip4table"
+		json_close_object
+		ubus call network add_dynamic "$(json_dump)"
+	}
+
+	[ "$iptype" != "ipv4" ] && {
+		json_init
+		json_add_string name "${interface}_6"
+		json_add_string ifname "@$interface"
+		ipv6address=$(_proto_mbim_get_field ipv6address "$mbimconfig")
+		if [ -n "$ipv6address" -a "$dhcpv6" != 1 ]; then
+			json_add_string proto "static"
+
+			json_add_array ip6addr
+			for address in $ipv6address; do
+				json_add_string "" "$address"
+			done
+			json_close_array
+
+			json_add_array ip6prefix
+			for address in $ipv6address; do
+				json_add_string "" "$address"
+			done
+			json_close_array
+
+			json_add_string ip6gw $(_proto_mbim_get_field ipv6gateway "$mbimconfig")
+
+		elif [ "$dhcpv6" != 0 ]; then
+			echo "mbim[$$]" "Starting DHCPv6 on $ifname"
+			json_add_string proto "dhcpv6"
+			json_add_string extendprefix 1
+			[ "$delegate" = "0" ] && json_add_boolean delegate "0"
+			[ "$sourcefilter" = "0" ] && json_add_boolean sourcefilter "0"
+		fi
+
+		[ "$dhcpv6" != 1 ] || {
+			json_add_array dns
+			for server in $(_proto_mbim_get_field ipv6dnsserver "$mbimconfig"); do
+				json_add_string "" "$server"
+			done
+			json_close_array
+		}
+
+		proto_add_dynamic_defaults
+		[ -n "$zone" ] && json_add_string zone "$zone"
+		[ -n "$ip6table" ] && json_add_string ip6table "$ip6table"
+		json_close_object
+		ubus call network add_dynamic "$(json_dump)"
+	}
+
+	[ -z "$mtu" ] && {
+		local ipv4mtu=$(_proto_mbim_get_field ipv4mtu "$mbimconfig")
+		ipv4mtu="${ipv4mtu:-0}"
+		local ipv6mtu=$(_proto_mbim_get_field ipv6mtu "$mbimconfig")
+		ipv6mtu="${ipv6mtu:-0}"
+
+		mtu=$((ipv6mtu > ipv4mtu ? ipv6mtu : ipv4mtu))
+	}
+	[ -n "$mtu" -a "$mtu" != 0 ] && {
+		echo Setting MTU of $ifname to $mtu
+		/sbin/ip link set dev $ifname mtu $mtu
+	}
+
+	uci_set_state network $interface tid "$tid"
 }
 
 proto_mbim_setup() {
@@ -175,11 +346,22 @@ proto_mbim_setup() {
 proto_mbim_teardown() {
 	local interface="$1"
 
-	local device
-	json_get_vars device
+	local device devpath
+	json_get_vars device devpath
 	local tid=$(uci_get_state network $interface tid)
 
 	[ -n "$ctl_device" ] && device=$ctl_device
+
+	if [ -n "$devpath" ]; then
+		local usbmisc_or_wwan_path
+		for usbmisc_or_wwan_path in \
+		    "$devpath"/usbmisc/cdc-wdm* \
+		    "$devpath"/*/usbmisc/cdc-wdm* \
+		    "$devpath"/*/wwan[0-9]*/wwan[0-9]*mbim* \
+		    "$devpath"/*/*/wwan[0-9]*/wwan[0-9]*mbim*; do
+			device="/dev/${usbmisc_or_wwan_path##*/}"
+		done
+	fi
 
 	echo "mbim[$$]" "Stopping network"
 	[ -n "$tid" ] && {

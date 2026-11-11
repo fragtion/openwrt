@@ -32,6 +32,12 @@ MESON_BUILD_DIR:=$(PKG_BUILD_DIR)/openwrt-build
 MESON_VARS:=
 MESON_ARGS:=
 
+MESON_RUST_VARS=$(if $(__inc_rust_values), \
+	$(if $(RUST_LIBCLANG_PATH),LIBCLANG_PATH=$(RUST_LIBCLANG_PATH)) \
+	$(if $(RUST_CLANG_PATH),CLANG_PATH=$(RUST_CLANG_PATH)))
+PKG_BUILD_DEPENDS += $(if $(__inc_rust_values),$(RUST_PKG_BUILD_DEPENDS))
+PKG_CONFIG_DEPENDS += $(if $(__inc_rust_values),$(RUST_PKG_CONFIG_DEPENDS))
+
 ifneq ($(findstring i386,$(CONFIG_ARCH)),)
 MESON_ARCH:="x86"
 else ifneq ($(findstring powerpc64,$(CONFIG_ARCH)),)
@@ -55,8 +61,14 @@ else
 MESON_CPU:="$(CPU_TYPE)$(if $(CPU_SUBTYPE),+$(CPU_SUBTYPE))"
 endif
 
+ifeq ($(MESON_USE_STAGING_PYTHON),)
+PYTHON_BIN:=$(STAGING_DIR_HOST)/bin/$(PYTHON)
+else
+PYTHON_BIN:=$(STAGING_DIR_HOSTPKG)/bin/$(PYTHON)
+endif
+
 define Meson
-	$(2) $(STAGING_DIR_HOST)/bin/$(PYTHON) $(STAGING_DIR_HOST)/bin/meson.py $(1)
+	$(2) $(PYTHON_BIN) $(STAGING_DIR_HOST)/bin/meson.py $(1)
 endef
 
 define Meson/CreateNativeFile
@@ -65,10 +77,14 @@ define Meson/CreateNativeFile
 		-e "s|@CXX@|$(foreach BIN,$(HOSTCXX),'$(BIN)',)|" \
 		-e "s|@PKGCONFIG@|$(PKG_CONFIG)|" \
 		-e "s|@CMAKE@|$(STAGING_DIR_HOST)/bin/cmake|" \
+		-e "s|@PYTHON@|$(PYTHON_BIN)|" \
 		-e "s|@CFLAGS@|$(foreach FLAG,$(HOST_CFLAGS) $(HOST_CPPFLAGS),'$(FLAG)',)|" \
 		-e "s|@CXXFLAGS@|$(foreach FLAG,$(HOST_CXXFLAGS) $(HOST_CPPFLAGS),'$(FLAG)',)|" \
 		-e "s|@LDFLAGS@|$(foreach FLAG,$(HOST_LDFLAGS),'$(FLAG)',)|" \
 		-e "s|@PREFIX@|$(HOST_BUILD_PREFIX)|" \
+		$(if $(__inc_rust_values), \
+			-e "s|@RUSTC@|'$(RUSTC)'|", \
+			-e "/@RUSTC@/d") \
 		< $(MESON_DIR)/openwrt-native.txt.in \
 		> $(1)
 endef
@@ -77,17 +93,24 @@ define Meson/CreateCrossFile
 	$(STAGING_DIR_HOST)/bin/sed \
 		-e "s|@CC@|$(foreach BIN,$(TARGET_CC),'$(BIN)',)|" \
 		-e "s|@CXX@|$(foreach BIN,$(TARGET_CXX),'$(BIN)',)|" \
+		-e "s|@LD@|$(foreach FLAG,$(TARGET_LINKER),'$(FLAG)',)|" \
 		-e "s|@AR@|$(TARGET_AR)|" \
 		-e "s|@STRIP@|$(TARGET_CROSS)strip|" \
 		-e "s|@NM@|$(TARGET_NM)|" \
 		-e "s|@PKGCONFIG@|$(PKG_CONFIG)|" \
 		-e "s|@CMAKE@|$(STAGING_DIR_HOST)/bin/cmake|" \
+		-e "s|@PYTHON@|$(PYTHON_BIN)|" \
 		-e "s|@CFLAGS@|$(foreach FLAG,$(TARGET_CFLAGS) $(EXTRA_CFLAGS) $(TARGET_CPPFLAGS) $(EXTRA_CPPFLAGS),'$(FLAG)',)|" \
 		-e "s|@CXXFLAGS@|$(foreach FLAG,$(TARGET_CXXFLAGS) $(EXTRA_CXXFLAGS) $(TARGET_CPPFLAGS) $(EXTRA_CPPFLAGS),'$(FLAG)',)|" \
 		-e "s|@LDFLAGS@|$(foreach FLAG,$(TARGET_LDFLAGS) $(EXTRA_LDFLAGS),'$(FLAG)',)|" \
 		-e "s|@ARCH@|$(MESON_ARCH)|" \
 		-e "s|@CPU@|$(MESON_CPU)|" \
 		-e "s|@ENDIAN@|$(if $(CONFIG_BIG_ENDIAN),big,little)|" \
+		$(if $(__inc_rust_values), \
+			-e "s|@RUSTC@|'$(RUSTC)'$(comma) '--target'$(comma) '$(RUSTC_TARGET_ARCH)'$(comma)$(foreach FLAG,$(CARGO_RUSTFLAGS),'$(FLAG)',)|" \
+			-e "s|@BINDGEN_CLANG_ARGS@|'--sysroot=$(TOOLCHAIN_ROOT_DIR)'|", \
+			-e "/@RUSTC@/d" \
+			-e "/@BINDGEN_CLANG_ARGS@/d") \
 		< $(MESON_DIR)/openwrt-cross.txt.in \
 		> $(1)
 endef
@@ -95,15 +118,17 @@ endef
 define Host/Configure/Meson
 	$(call Meson/CreateNativeFile,$(HOST_BUILD_DIR)/openwrt-native.txt)
 	$(call Meson, \
+		setup \
 		--native-file $(HOST_BUILD_DIR)/openwrt-native.txt \
+		-Ddefault_library=static \
 		$(MESON_HOST_ARGS) \
 		$(MESON_HOST_BUILD_DIR) \
-		$(HOST_BUILD_DIR), \
+		$(MESON_HOST_BUILD_DIR)/.., \
 		$(MESON_HOST_VARS))
 endef
 
 define Host/Compile/Meson
-	+$(NINJA) -C $(MESON_HOST_BUILD_DIR) $(1)
+	+$(MESON_HOST_VARS) $(NINJA) -C $(MESON_HOST_BUILD_DIR) $(1)
 endef
 
 define Host/Install/Meson
@@ -118,17 +143,19 @@ define Build/Configure/Meson
 	$(call Meson/CreateNativeFile,$(PKG_BUILD_DIR)/openwrt-native.txt)
 	$(call Meson/CreateCrossFile,$(PKG_BUILD_DIR)/openwrt-cross.txt)
 	$(call Meson, \
-		--buildtype plain \
+		setup \
+		--buildtype $(if $(CONFIG_DEBUG),debug,plain) \
 		--native-file $(PKG_BUILD_DIR)/openwrt-native.txt \
 		--cross-file $(PKG_BUILD_DIR)/openwrt-cross.txt \
+		-Ddefault_library=both \
 		$(MESON_ARGS) \
 		$(MESON_BUILD_DIR) \
 		$(MESON_BUILD_DIR)/.., \
-		$(MESON_VARS))
+		$(MESON_VARS) $(MESON_RUST_VARS))
 endef
 
 define Build/Compile/Meson
-	+$(NINJA) -C $(MESON_BUILD_DIR) $(1)
+	+$(MESON_VARS) $(MESON_RUST_VARS) $(NINJA) -C $(MESON_BUILD_DIR) $(1)
 endef
 
 define Build/Install/Meson

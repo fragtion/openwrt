@@ -44,9 +44,9 @@
 &mdio0 {
 	status = "okay";
 
-	phy0: ethernet-switch@0 {
+	ethernet-switch@10 {
 		compatible = "qca,ar8327";
-		reg = <0x0>;
+		reg = <0x10>;
 
 		qca,ar8327-initvals = <
 			0x04 0x05100000 /* PORT0 PAD MODE CTRL */
@@ -64,7 +64,6 @@
 &eth0 {
 	status = "okay";
 
-	phy-handle = <&phy0>;
 	phy-mode = "rgmii";
 
 	nvmem-cells = <&macaddr_art_0>;
@@ -73,15 +72,5 @@
 	fixed-link {
 		speed = <1000>;
 		full-duplex;
-	};
-};
-
-&art {
-	compatible = "nvmem-cells";
-	#address-cells = <1>;
-	#size-cells = <1>;
-
-	macaddr_art_0: macaddr@0 {
-		reg = <0x0 0x6>;
 	};
 };

@@ -7,10 +7,10 @@
 
 include $(TOPDIR)/rules.mk
 
-PKG_VERSION:=2020.04
-PKG_RELEASE:=$(AUTORELEASE)
+PKG_VERSION:=2026.04
+PKG_RELEASE:=1
 
-PKG_HASH:=fe732aaf037d9cc3c0909bad8362af366ae964bbdac6913a34081ff4ad565372
+PKG_HASH:=ac7c04b8b7004923b00a4e5d6699c5df4d21233bac9fda690d8cfbc209fff2fd
 
 include $(INCLUDE_DIR)/u-boot.mk
 include $(INCLUDE_DIR)/package.mk
@@ -23,17 +23,43 @@ endef
 define U-Boot/apalis_imx6
   NAME:=Toradex Apalis
   UBOOT_IMAGE:=SPL u-boot.img u-boot-with-spl.imx
-  UBOOT_MAKE_FLAGS:=SPL u-boot.img u-boot-with-spl.imx
+  UBOOT_MAKE_FLAGS+=SPL u-boot.img u-boot-with-spl.imx
   BUILD_SUBTARGET:=cortexa9
   BUILD_DEVICES:=toradex_apalis
 endef
 
+define U-Boot/imx8mp_olimex_som_evb
+  DEPENDS:=+firmware-imx +trusted-firmware-a-imx8mp
+  ATF:=bl31_imx8mp.bin
+  NAME:=Olimex i.MX8MP-SOM-EVB LPDDR4 board
+  BUILD_SUBTARGET:=cortexa53
+  BUILD_DEVICES:=olimex_imx8mp-som
+  UBOOT_IMAGE:=flash.bin
+endef
+
+define U-Boot/kontron-osm-s-mx8mp
+  NAME:=Kontron OSM-S/BL i.MX8MP
+  DEPENDS:=+firmware-imx +trusted-firmware-a-imx8mp
+  ATF:=bl31_imx8mp.bin
+  UBOOT_IMAGE:=flash.bin
+  BUILD_SUBTARGET:=cortexa53
+  BUILD_DEVICES:=kontron_osm-s-imx8mp
+endef
+
 define U-Boot/mx6cuboxi
   NAME:=SolidRun Cubox-i boards
-  UBOOT_IMAGE:=SPL u-boot.img
-  UBOOT_MAKE_FLAGS:=SPL u-boot.img
+  UBOOT_IMAGE:=SPL u-boot-dtb.img
+  UBOOT_MAKE_FLAGS+=SPL u-boot-dtb.img
   BUILD_SUBTARGET:=cortexa9
   BUILD_DEVICES:=solidrun_cubox-i
+endef
+
+define U-Boot/pico-pi-imx7d
+  NAME:=TechNexion PICO-PI-IMX7D
+  UBOOT_IMAGE:=SPL u-boot-dtb.img
+  UBOOT_MAKE_FLAGS+=SPL u-boot-dtb.img
+  BUILD_SUBTARGET:=cortexa7
+  BUILD_DEVICES:=technexion_imx7d-pico-pi
 endef
 
 define U-Boot/wandboard
@@ -42,18 +68,33 @@ define U-Boot/wandboard
   BUILD_DEVICES:=wandboard_dual
 endef
 
+UBOOT_CUSTOMIZE_CONFIG := \
+	--disable TOOLS_MKEFICAPSULE
+
 UBOOT_TARGETS := \
 	apalis_imx6 \
+	imx8mp_olimex_som_evb \
+	kontron-osm-s-mx8mp \
 	mx6cuboxi \
+	pico-pi-imx7d \
 	wandboard
 
+ifneq ($(SUBTARGET),cortexa53)
 UBOOT_MAKE_FLAGS += u-boot.imx
+else
+UBOOT_MAKE_FLAGS += \
+	BL31=$(STAGING_DIR_IMAGE)/$(ATF) \
+	BINMAN_INDIRS="$(STAGING_DIR_IMAGE)/firmware-imx $(STAGING_DIR_IMAGE)"
+endif
 
 define Build/InstallDev
 	$(INSTALL_DIR) $(STAGING_DIR_IMAGE)
 	$(foreach img,$(UBOOT_IMAGE), \
 		$(CP) $(PKG_BUILD_DIR)/$(img) $(STAGING_DIR_IMAGE)/$(BUILD_VARIANT)-$(img); \
 	)
+endef
+
+define Package/u-boot/install/default
 endef
 
 $(eval $(call BuildPackage/U-Boot))

@@ -8,29 +8,37 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=iw
-PKG_VERSION:=5.16
+PKG_VERSION:=6.17
 PKG_RELEASE:=1
  
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
 PKG_SOURCE_URL:=@KERNEL/software/network/iw
-PKG_HASH:=4c44e42762f903f9094ba5a598998c800a97a62afd6fd31ec1e0a799e308659c
+PKG_HASH:=7d182e498289ab39b257da6780d562e415377107f50358ee5b55b8cfe40b1e33
 
 PKG_MAINTAINER:=Felix Fietkau <nbd@nbd.name>
 PKG_LICENSE:=GPL-2.0
+PKG_CPE_ID:=cpe:/a:kernel:iw
+
+PKG_BUILD_FLAGS:=gc-sections lto
 
 include $(INCLUDE_DIR)/package.mk
 
-define Package/iw
+define Package/iw/Default
   SECTION:=net
   CATEGORY:=Network
   TITLE:=cfg80211 interface configuration utility
-  URL:=http://wireless.kernel.org/en/users/Documentation/iw
+  URL:=https://wireless.docs.kernel.org/en/latest/en/users/documentation/iw.html
   DEPENDS:= +libnl-tiny
+endef
+
+define Package/iw
+$(call Package/iw/Default)
   VARIANT:=tiny
+  DEFAULT_VARIANT:=1
 endef
 
 define Package/iw-full
-  $(Package/iw)
+$(call Package/iw/Default)
   TITLE += (full version)
   VARIANT:=full
   PROVIDES:=iw
@@ -46,8 +54,7 @@ TARGET_CPPFLAGS:= \
 	-I$(STAGING_DIR)/usr/include/libnl-tiny \
 	$(TARGET_CPPFLAGS) \
 	-DCONFIG_LIBNL20 \
-	-D_GNU_SOURCE \
-	-flto
+	-D_GNU_SOURCE
 
 ifeq ($(BUILD_VARIANT),full)
   TARGET_CPPFLAGS += -DIW_FULL
@@ -55,8 +62,8 @@ ifeq ($(BUILD_VARIANT),full)
 endif
 
 MAKE_FLAGS += \
-	CFLAGS="$(TARGET_CPPFLAGS) $(TARGET_CFLAGS) -ffunction-sections -fdata-sections" \
-	LDFLAGS="$(TARGET_LDFLAGS) -Wl,--gc-sections -flto" \
+	CFLAGS="$(TARGET_CPPFLAGS) $(TARGET_CFLAGS)" \
+	LDFLAGS="$(TARGET_LDFLAGS)" \
 	NL1FOUND="" NL2FOUND=Y \
 	NLLIBNAME="libnl-tiny" \
 	LIBS="-lm -lnl-tiny" \

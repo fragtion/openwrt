@@ -23,7 +23,7 @@
 #include <linux/skbuff.h>
 #include <linux/netdevice.h>
 #include <linux/netlink.h>
-#include <linux/of_device.h>
+#include <linux/of.h>
 #include <linux/of_mdio.h>
 #include <linux/of_net.h>
 #include <linux/bitops.h>
@@ -33,9 +33,7 @@
 #include <linux/phy.h>
 #include <linux/etherdevice.h>
 #include <linux/lockdep.h>
-#include <linux/ar8216_platform.h>
 #include <linux/workqueue.h>
-#include <linux/version.h>
 
 #include "ar8216.h"
 
@@ -891,11 +889,7 @@ ar8216_phy_write(struct ar8xxx_priv *priv, int addr, int regnum, u16 val)
 static int
 ar8229_hw_init(struct ar8xxx_priv *priv)
 {
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 5, 0)
 	phy_interface_t phy_if_mode;
-#else
-	int phy_if_mode;
-#endif
 
 	if (priv->initialized)
 		return 0;
@@ -903,11 +897,7 @@ ar8229_hw_init(struct ar8xxx_priv *priv)
 	ar8xxx_write(priv, AR8216_REG_CTRL, AR8216_CTRL_RESET);
 	ar8xxx_reg_wait(priv, AR8216_REG_CTRL, AR8216_CTRL_RESET, 0, 1000);
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 5, 0)
 	of_get_phy_mode(priv->pdev->of_node, &phy_if_mode);
-#else
-	phy_if_mode = of_get_phy_mode(priv->pdev->of_node);
-#endif
 
 	if (phy_if_mode == PHY_INTERFACE_MODE_GMII) {
 		ar8xxx_write(priv, AR8229_REG_OPER_MODE0,
@@ -1427,8 +1417,7 @@ ar8xxx_sw_reset_switch(struct switch_dev *dev)
 	int i;
 
 	mutex_lock(&priv->reg_mutex);
-	memset(&priv->vlan, 0, sizeof(struct ar8xxx_priv) -
-		offsetof(struct ar8xxx_priv, vlan));
+	memset(&priv->ar8xxx_priv_volatile, 0, sizeof(priv->ar8xxx_priv_volatile));
 
 	for (i = 0; i < dev->vlans; i++)
 		priv->vlan_id[i] = i;
@@ -2321,16 +2310,14 @@ next_attempt:
 static int
 ar8xxx_mib_init(struct ar8xxx_priv *priv)
 {
-	unsigned int len;
-
 	if (!ar8xxx_has_mib_counters(priv))
 		return 0;
 
-	BUG_ON(!priv->chip->mib_decs || !priv->chip->num_mibs);
+	if (WARN_ON(!priv->chip->mib_decs || !priv->chip->num_mibs))
+		return -EINVAL;
 
-	len = priv->dev.ports * priv->chip->num_mibs *
-	      sizeof(*priv->mib_stats);
-	priv->mib_stats = kzalloc(len, GFP_KERNEL);
+	priv->mib_stats = kcalloc(array_size(priv->dev.ports, priv->chip->num_mibs),
+				 sizeof(*priv->mib_stats), GFP_KERNEL);
 
 	if (!priv->mib_stats)
 		return -ENOMEM;
@@ -2433,7 +2420,9 @@ static int
 ar8xxx_phy_config_init(struct phy_device *phydev)
 {
 	struct ar8xxx_priv *priv = phydev->priv;
+#ifdef CONFIG_ETHERNET_PACKET_MANGLE
 	struct net_device *dev = phydev->attached_dev;
+#endif
 	int ret;
 
 	if (WARN_ON(!priv))
@@ -2766,15 +2755,10 @@ static const struct of_device_id ar8xxx_mdiodev_of_match[] = {
 static int
 ar8xxx_mdiodev_probe(struct mdio_device *mdiodev)
 {
-	const struct of_device_id *match;
 	struct ar8xxx_priv *priv;
 	struct switch_dev *swdev;
 	struct device_node *mdio_node;
 	int ret;
-
-	match = of_match_device(ar8xxx_mdiodev_of_match, &mdiodev->dev);
-	if (!match)
-		return -EINVAL;
 
 	priv = ar8xxx_create();
 	if (priv == NULL)
@@ -2782,7 +2766,7 @@ ar8xxx_mdiodev_probe(struct mdio_device *mdiodev)
 
 	priv->mii_bus = mdiodev->bus;
 	priv->pdev = &mdiodev->dev;
-	priv->chip = (const struct ar8xxx_chip *) match->data;
+	priv->chip = of_device_get_match_data(&mdiodev->dev);
 
 	ret = of_property_read_u32(priv->pdev->of_node, "qca,mib-poll-interval",
 				   &priv->mib_poll_interval);
@@ -2807,7 +2791,8 @@ ar8xxx_mdiodev_probe(struct mdio_device *mdiodev)
 		snprintf(priv->sw_mii_bus->id, MII_BUS_ID_SIZE, "%s",
 			 dev_name(&mdiodev->dev));
 		mdio_node = of_get_child_by_name(priv->pdev->of_node, "mdio-bus");
-		ret = of_mdiobus_register(priv->sw_mii_bus, mdio_node);
+		ret = devm_of_mdiobus_register(priv->pdev, priv->sw_mii_bus, mdio_node);
+		of_node_put(mdio_node);
 		if (ret)
 			goto free_priv;
 	}
@@ -2873,8 +2858,6 @@ ar8xxx_mdiodev_remove(struct mdio_device *mdiodev)
 
 	unregister_switch(&priv->dev);
 	ar8xxx_mib_stop(priv);
-	if(priv->sw_mii_bus)
-		mdiobus_unregister(priv->sw_mii_bus);
 	ar8xxx_free(priv);
 }
 

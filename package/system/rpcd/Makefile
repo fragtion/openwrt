@@ -8,13 +8,13 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=rpcd
-PKG_RELEASE:=2
+PKG_RELEASE:=1
 
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL=$(PROJECT_GIT)/project/rpcd.git
-PKG_MIRROR_HASH:=98071b4a1ce983a0e738d7e4a2f6e52b7f6db19f99510ddef430093314134ca4
-PKG_SOURCE_DATE:=2021-11-04
-PKG_SOURCE_VERSION:=d11ffe9383ae0ec34836421926364b24c1d891ca
+PKG_MIRROR_HASH:=dec618e00ee5550b360498997fc5c4725526243e22e866aab3d584e919e0603d
+PKG_SOURCE_DATE:=2026-10-28
+PKG_SOURCE_VERSION:=469d7852316ef692805396d8af744ec43604b842
 PKG_MAINTAINER:=Jo-Philipp Wich <jo@mein.io>
 
 PKG_LICENSE:=ISC
@@ -39,7 +39,7 @@ endef
 
 define Package/rpcd
   $(Package/rpcd/default)
-  DEPENDS+= +libuci +libblobmsg-json +libjson-c
+  DEPENDS+= +USE_GLIBC:libcrypt-compat +libuci +libblobmsg-json +libjson-c
 endef
 
 define Package/rpcd/description
@@ -68,16 +68,18 @@ endef
 
 
 # 1: plugin name
-# 2: extra dependencies
+# 2: additional dependencies
 # 3: plugin title/description
+# 4: extra dependencies
 define BuildPlugin
 
-  PKG_CONFIG_DEPENDS += CONFIG_PACKAGE_luci-rpc-mod-$(1)
+  PKG_CONFIG_DEPENDS += CONFIG_PACKAGE_rpcd-mod-$(1)
 
   define Package/rpcd-mod-$(1)
     $(Package/rpcd/default)
     TITLE+= ($(1) plugin)
     DEPENDS+=rpcd $(2)
+    EXTRA_DEPENDS:=$(4)
   endef
 
   define Package/rpcd-mod-$(1)/description
@@ -101,4 +103,5 @@ endef
 $(eval $(call BuildPackage,rpcd))
 $(eval $(call BuildPlugin,file,,Provides ubus calls for file and directory operations.))
 $(eval $(call BuildPlugin,rpcsys,,Provides ubus calls for sysupgrade and password changing.))
-$(eval $(call BuildPlugin,iwinfo,+libiwinfo,Provides ubus calls for accessing iwinfo data.))
+$(eval $(call BuildPlugin,iwinfo,+libiwinfo,Provides ubus calls for accessing iwinfo data.,libiwinfo (>=2023.01.21)))
+$(eval $(call BuildPlugin,ucode,+libucode,Allows implementing plugins using ucode scripts.))

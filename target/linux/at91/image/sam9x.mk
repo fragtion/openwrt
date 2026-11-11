@@ -16,11 +16,11 @@ define Build/at91-sdcard
 	::$(DEVICE_NAME)-fit.itb
 
   mcopy -i $@.boot \
-	$(BIN_DIR)/u-boot-$(if $(findstring sam9x60,$@),$(DEVICE_DTS:at91-%=%),at91sam9x5ek)_mmc/u-boot.bin \
+	$(STAGING_DIR_IMAGE)/$(if $(findstring sam9x60,$@),$(DEVICE_DTS:at91-%=%),at91sam9x5ek)_mmc-u-boot.bin \
 	::u-boot.bin
 
   mcopy -i $@.boot \
-	$(BIN_DIR)/at91bootstrap-$(if $(findstring sam9x60,$@),$(DEVICE_DTS:at91-%=%),at91sam9x5ek)sd_uboot/at91bootstrap.bin \
+	$(STAGING_DIR_IMAGE)/$(if $(findstring sam9x60,$@),$(DEVICE_DTS:at91-%=%),at91sam9x5ek)sd_uboot-at91bootstrap.bin \
 	::BOOT.bin
 
   $(CP) uboot-env.txt $@-uboot-env.txt
@@ -35,7 +35,7 @@ define Build/at91-sdcard
   ./gen_at91_sdcard_img.sh \
 	$@.img \
 	$@.boot \
-	$(KDIR)/root.ext4 \
+	$(IMAGE_ROOTFS) \
 	$(AT91_SD_BOOT_PARTSIZE) \
 	$(CONFIG_TARGET_ROOTFS_PARTSIZE)
 
@@ -125,8 +125,10 @@ define Device/calamp_lmu5000
   $(Device/production)
   DEVICE_VENDOR := CalAmp
   DEVICE_MODEL := LMU5000
+  DEVICE_DTS := at91-lmu5000
   DEVICE_PACKAGES := kmod-rtc-pcf2123 kmod-usb-acm \
-	kmod-usb-serial-option kmod-usb-serial-sierrawireless kmod-gpio-mcp23s08
+	kmod-usb-serial-option kmod-usb-serial-sierrawireless \
+	kmod-pinctrl-mcp23s08-spi
 endef
 TARGET_DEVICES += calamp_lmu5000
 
@@ -205,7 +207,7 @@ define Device/laird_wb45n
   DEVICE_MODEL := WB45N
   DEVICE_DTS := at91-wb45n
   DEVICE_PACKAGES := \
-	kmod-mmc-at91 kmod-ath6kl-sdio ath6k-firmware \
+	kmod-ath6kl-sdio ath6k-firmware \
 	kmod-usb-storage kmod-fs-vfat kmod-fs-msdos \
 	kmod-leds-gpio
   BLOCKSIZE := 128k

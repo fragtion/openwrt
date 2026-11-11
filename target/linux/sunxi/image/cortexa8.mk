@@ -3,7 +3,10 @@
 # Copyright (C) 2013-2016 OpenWrt.org
 # Copyright (C) 2016 Yousong Zhou
 
+KERNEL_LOADADDR:=0x40008000
+
 define Device/cubietech_a10-cubieboard
+  $(call Device/FitImageGzip)
   DEVICE_VENDOR := Cubietech
   DEVICE_MODEL := Cubieboard
   DEVICE_PACKAGES:=kmod-ata-sunxi kmod-sun4i-emac kmod-rtc-sunxi
@@ -11,7 +14,19 @@ define Device/cubietech_a10-cubieboard
 endef
 TARGET_DEVICES += cubietech_a10-cubieboard
 
+define Device/haoyu_a10-marsboard
+  $(call Device/FitImageGzip)
+  DEVICE_VENDOR := HAOYU Electronics
+  DEVICE_MODEL := MarsBoard A10
+  DEVICE_PACKAGES:=kmod-ata-core kmod-ata-sunxi kmod-sun4i-emac \
+	kmod-rtc-sunxi kmod-sound-core kmod-sound-soc-sunxi audio-support
+  SUPPORTED_DEVICES += marsboard,a10-marsboard
+  SOC := sun4i
+endef
+TARGET_DEVICES += haoyu_a10-marsboard
+
 define Device/linksprite_a10-pcduino
+  $(call Device/FitImageGzip)
   DEVICE_VENDOR := LinkSprite
   DEVICE_MODEL := pcDuino
   DEVICE_PACKAGES:=kmod-sun4i-emac kmod-rtc-sunxi kmod-rtl8192cu
@@ -19,16 +34,8 @@ define Device/linksprite_a10-pcduino
 endef
 TARGET_DEVICES += linksprite_a10-pcduino
 
-define Device/marsboard_a10-marsboard
-  DEVICE_VENDOR := HAOYU Electronics
-  DEVICE_MODEL := MarsBoard A10
-  DEVICE_PACKAGES:=mod-ata-core kmod-ata-sunxi kmod-sun4i-emac kmod-rtc-sunxi \
-	sound-soc-sunxi
-  SOC := sun4i
-endef
-TARGET_DEVICES += marsboard_a10-marsboard
-
 define Device/olimex_a10-olinuxino-lime
+  $(call Device/FitImageGzip)
   DEVICE_VENDOR := Olimex
   DEVICE_MODEL := A10-OLinuXino-LIME
   DEVICE_PACKAGES:=kmod-ata-sunxi kmod-sun4i-emac kmod-rtc-sunxi
@@ -36,19 +43,12 @@ define Device/olimex_a10-olinuxino-lime
 endef
 TARGET_DEVICES += olimex_a10-olinuxino-lime
 
-define Device/olimex_a13-olimex-som
-  DEVICE_VENDOR := Olimex
-  DEVICE_MODEL := A13-SOM
-  DEVICE_PACKAGES:=kmod-rtl8192cu
-  SUPPORTED_DEVICES:=olimex,a13-olinuxino
-  SOC := sun5i-a13
-  SUNXI_DTS := sun5i-a13-olinuxino
-endef
-TARGET_DEVICES += olimex_a13-olimex-som
-
 define Device/olimex_a13-olinuxino
+  $(call Device/FitImageGzip)
   DEVICE_VENDOR := Olimex
   DEVICE_MODEL := A13-OLinuXino
+  DEVICE_ALT0_VENDOR := Olimex
+  DEVICE_ALT0_MODEL := A13-SOM
   DEVICE_PACKAGES:=kmod-rtl8192cu
   SOC := sun5i
 endef

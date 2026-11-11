@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=comgt
 PKG_VERSION:=0.32
-PKG_RELEASE:=33
+PKG_RELEASE:=38
 
 PKG_SOURCE:=$(PKG_NAME).$(PKG_VERSION).tgz
 PKG_SOURCE_URL:=@SF/comgt
@@ -35,7 +35,7 @@ define Package/comgt
 $(call Package/comgt/Default)
   TITLE:=Option/Vodafone 3G/GPRS control tool
   DEPENDS:=+chat
-  URL:=http://manpages.ubuntu.com/manpages/trusty/man1/comgt.1.html
+  URL:=https://manpages.ubuntu.com/manpages/trusty/man1/comgt.1.html
 endef
 
 define Package/comgt-directip
@@ -60,7 +60,7 @@ define Build/Compile
 	$(MAKE) -C $(PKG_BUILD_DIR) \
 		$(TARGET_CONFIGURE_OPTS) \
 		CFLAGS="$(TARGET_CFLAGS)" \
-		LDFLAGS="" \
+		LDFLAGS="$(TARGET_LDFLAGS)" \
 		comgt
 endef
 
@@ -75,10 +75,12 @@ define Package/comgt/install
 	$(INSTALL_DATA) ./files/setpin.gcom $(1)/etc/gcom/setpin.gcom
 	$(INSTALL_DATA) ./files/setmode.gcom $(1)/etc/gcom/setmode.gcom
 	$(INSTALL_DATA) ./files/getcardinfo.gcom $(1)/etc/gcom/getcardinfo.gcom
+	$(INSTALL_DATA) ./files/getmodel.gcom $(1)/etc/gcom/getmodel.gcom
 	$(INSTALL_DATA) ./files/getstrength.gcom $(1)/etc/gcom/getstrength.gcom
 	$(INSTALL_DATA) ./files/getcarrier.gcom $(1)/etc/gcom/getcarrier.gcom
 	$(INSTALL_DATA) ./files/getcnum.gcom $(1)/etc/gcom/getcnum.gcom
 	$(INSTALL_DATA) ./files/getimsi.gcom $(1)/etc/gcom/getimsi.gcom
+	$(INSTALL_DATA) ./files/runcommand.gcom $(1)/etc/gcom/runcommand.gcom
 	$(INSTALL_DIR) $(1)/etc/hotplug.d/tty
 	$(INSTALL_CONF) ./files/3g.usb $(1)/etc/hotplug.d/tty/30-3g
 	$(INSTALL_DIR) $(1)/lib/netifd/proto
@@ -96,7 +98,6 @@ endef
 define Package/comgt-ncm/install
 	$(INSTALL_DIR) $(1)/etc/gcom
 	$(INSTALL_DATA) ./files/ncm.json $(1)/etc/gcom/ncm.json
-	$(INSTALL_DATA) ./files/runcommand.gcom $(1)/etc/gcom/runcommand.gcom
 	$(INSTALL_DIR) $(1)/lib/netifd/proto
 	$(INSTALL_BIN) ./files/ncm.sh $(1)/lib/netifd/proto/ncm.sh
 endef

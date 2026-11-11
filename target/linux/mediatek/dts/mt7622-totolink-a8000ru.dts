@@ -2,6 +2,7 @@
 
 /dts-v1/;
 #include <dt-bindings/input/input.h>
+#include <dt-bindings/leds/common.h>
 #include <dt-bindings/gpio/gpio.h>
 
 #include "mt7622.dtsi"
@@ -57,7 +58,8 @@
 		compatible = "gpio-leds";
 
 		led_status: status_red {
-			label = "red:status";
+			function = LED_FUNCTION_STATUS;
+			color = <LED_COLOR_ID_RED>;
 			gpios = <&pio 81 GPIO_ACTIVE_LOW>;
 			default-state = "on";
 		};
@@ -80,12 +82,13 @@
 		regulator-always-on;
 	};
 
-	rtkgsw: rtkgsw@0 {
-		compatible = "mediatek,rtk-gsw";
-		mediatek,ethsys = <&ethsys>;
-		mediatek,mdio = <&mdio>;
-		mediatek,reset-pin = <&pio 54 0>;
-		status = "okay";
+	reg_5v: regulator-5v {
+		compatible = "regulator-fixed";
+		regulator-name = "fixed-5V";
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		regulator-boot-on;
+		regulator-always-on;
 	};
 };
 
@@ -96,10 +99,9 @@
 };
 
 &slot0 {
-	mt7615@0,0 {
+	wmac1: wifi@0,0 {
+		compatible = "mediatek,mt76";
 		reg = <0x0000 0 0 0 0>;
-		mediatek,mtd-eeprom = <&factory 0x5000>;
-		ieee80211-freq-limit = <5490000 6000000>;
 	};
 };
 
@@ -110,10 +112,9 @@
 };
 
 &slot1 {
-	mt7615@0,0 {
+	wmac2: wifi@0,0 {
+		compatible = "mediatek,mt76";
 		reg = <0x0000 0 0 0 0>;
-		mediatek,mtd-eeprom = <&factory 0x10000>;
-		ieee80211-freq-limit = <5000000 5490000>;
 	};
 };
 
@@ -121,7 +122,7 @@
 	eth_pins: eth-pins {
 		mux {
 			function = "eth";
-			groups = "mdc_mdio", "rgmii_via_gmac2";
+			groups = "mdc_mdio";
 		};
 	};
 
@@ -193,22 +194,9 @@
 		reg = <0>;
 		nvmem-cells = <&macaddr_factory_2a>;
 		nvmem-cell-names = "mac-address";
-		phy-connection-type = "2500base-x";
+		phy-mode = "2500base-x";
 		fixed-link {
 			speed = <2500>;
-			full-duplex;
-			pause;
-		};
-	};
-
-	gmac1: mac@1 {
-		compatible = "mediatek,eth-mac";
-		reg = <1>;
-		phy-mode = "rgmii";
-		nvmem-cells = <&macaddr_factory_24>;
-		nvmem-cell-names = "mac-address";
-		fixed-link {
-			speed = <1000>;
 			full-duplex;
 			pause;
 		};
@@ -217,6 +205,87 @@
 	mdio: mdio-bus {
 		#address-cells = <1>;
 		#size-cells = <0>;
+
+		switch@1d {
+			compatible = "realtek,rtl8365mb";
+			reg = <29>;
+			reset-gpios = <&pio 54 GPIO_ACTIVE_LOW>;
+
+			mdio {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				phy0: ethernet-phy@0 {
+					reg = <0>;
+				};
+
+				phy1: ethernet-phy@1 {
+					reg = <1>;
+				};
+
+				phy2: ethernet-phy@2 {
+					reg = <2>;
+				};
+
+				phy3: ethernet-phy@3 {
+					reg = <3>;
+				};
+
+				phy4: ethernet-phy@4 {
+					reg = <4>;
+				};
+			};
+
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				port@0 {
+					reg = <0>;
+					label = "lan1";
+					phy-handle = <&phy0>;
+				};
+
+				port@1 {
+					reg = <1>;
+					label = "lan2";
+					phy-handle = <&phy1>;
+				};
+
+				port@2 {
+					reg = <2>;
+					label = "lan3";
+					phy-handle = <&phy2>;
+				};
+
+				port@3 {
+					reg = <3>;
+					label = "lan4";
+					phy-handle = <&phy3>;
+				};
+
+				port@4 {
+					reg = <4>;
+					label = "wan";
+					nvmem-cells = <&macaddr_factory_24>;
+					nvmem-cell-names = "mac-address";
+					phy-handle = <&phy4>;
+				};
+
+				port@6 {
+					reg = <6>;
+					label = "cpu";
+					ethernet = <&gmac0>;
+					phy-mode = "2500base-x";
+
+					fixed-link {
+						speed = <2500>;
+						full-duplex;
+						pause;
+					};
+				};
+			};
+		};
 	};
 };
 
@@ -226,82 +295,105 @@
 	status = "okay";
 };
 
-&snand {
-	mediatek,quad-spi;
+&bch {
+	status = "okay";
+};
+
+&snfi {
 	pinctrl-names = "default";
 	pinctrl-0 = <&serial_nand_pins>;
 	status = "okay";
-	mediatek,bmt-v2;
+	flash@0 {
+		compatible = "spi-nand";
+		reg = <0>;
+		spi-tx-bus-width = <4>;
+		spi-rx-bus-width = <4>;
+		nand-ecc-engine = <&snfi>;
+		mediatek,bmt-v2;
 
-	partitions {
-		compatible = "fixed-partitions";
-		#address-cells = <1>;
-		#size-cells = <1>;
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
 
-		partition@0 {
-			label = "Preloader";
-			reg = <0x0 0x80000>;
-			read-only;
+			partition@0 {
+				label = "Preloader";
+				reg = <0x0 0x80000>;
+				read-only;
+			};
+
+			partition@80000 {
+				label = "ATF";
+				reg = <0x80000 0x40000>;
+				read-only;
+			};
+
+			partition@c0000 {
+				label = "u-boot";
+				reg = <0xc0000 0x80000>;
+				read-only;
+			};
+
+			partition@140000 {
+				label = "u-boot-env";
+				reg = <0x140000 0x80000>;
+				read-only;
+			};
+
+			partition@1c0000 {
+				label = "factory";
+				reg = <0x1c0000 0x40000>;
+				read-only;
+
+				nvmem-layout {
+					compatible = "fixed-layout";
+					#address-cells = <1>;
+					#size-cells = <1>;
+
+					eeprom_factory_0: eeprom@0 {
+						reg = <0x0 0x4da8>; /* actual length 0x400 */
+					};
+
+					macaddr_factory_24: macaddr@24 {
+						reg = <0x24 0x6>;
+					};
+
+					macaddr_factory_2a: macaddr@2a {
+						reg = <0x2a 0x6>;
+					};
+
+					eeprom_factory_5000: eeprom@5000 {
+						reg = <0x5000 0x4da8>;
+					};
+
+					eeprom_factory_10000: eeprom@10000 {
+						reg = <0x10000 0x4da8>;
+					};
+				};
+			};
+
+			partition@200000 {
+				label = "ubi";
+				reg = <0x200000 0x6400000>;
+			};
+
+			partition@6600000 {
+				label = "User_data";
+				reg = <0x6600000 0x100000>;
+			};
+
+			/* size of this partition varies due to BMT & bad blocks. */
+			partition@6700000 {
+				label = "reserved";
+				reg = <0x6700000 0>;
+			};
 		};
-
-		partition@80000 {
-			label = "ATF";
-			reg = <0x80000 0x40000>;
-			read-only;
-		};
-
-		partition@c0000 {
-			label = "u-boot";
-			reg = <0xc0000 0x80000>;
-			read-only;
-		};
-
-		partition@140000 {
-			label = "u-boot-env";
-			reg = <0x140000 0x80000>;
-			read-only;
-		};
-
-		factory: partition@1c0000 {
-			label = "factory";
-			reg = <0x1c0000 0x40000>;
-			read-only;
-		};
-
-		partition@200000 {
-			label = "ubi";
-			reg = <0x200000 0x6400000>;
-		};
-
-		partition@6600000 {
-			label = "User_data";
-			reg = <0x6600000 0x100000>;
-		};
-
-		/* size of this partition varies due to BMT & bad blocks. */
-		partition@6700000 {
-			label = "reserved";
-			reg = <0x6700000 0>;
-		};
-	};
-};
-
-&factory {
-	compatible = "nvmem-cells";
-	#address-cells = <1>;
-	#size-cells = <1>;
-
-	macaddr_factory_24: macaddr@24 {
-		reg = <0x24 0x6>;
-	};
-
-	macaddr_factory_2a: macaddr@2a {
-		reg = <0x2a 0x6>;
 	};
 };
 
 &ssusb {
 	vusb33-supply = <&reg_3p3v>;
+	vbus-supply = <&reg_5v>;
 	status = "okay";
 };
 
@@ -322,8 +414,23 @@
 };
 
 &wmac {
+	status = "okay";
+
 	pinctrl-names = "default";
 	pinctrl-0 = <&epa_elna_pins>;
-	mediatek,mtd-eeprom = <&factory 0x0>;
-	status = "okay";
+
+	nvmem-cells = <&eeprom_factory_0>;
+	nvmem-cell-names = "eeprom";
+};
+
+&wmac1 {
+	nvmem-cells = <&eeprom_factory_5000>;
+	nvmem-cell-names = "eeprom";
+	ieee80211-freq-limit = <5490000 6000000>;
+};
+
+&wmac2 {
+	nvmem-cells = <&eeprom_factory_10000>;
+	nvmem-cell-names = "eeprom";
+	ieee80211-freq-limit = <5000000 5490000>;
 };

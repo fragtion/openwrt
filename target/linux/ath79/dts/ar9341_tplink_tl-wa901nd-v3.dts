@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later OR MIT
 
+#include <dt-bindings/leds/common.h>
+
 #include "ar9341_tplink_tl-wa.dtsi"
 
 / {
@@ -28,14 +30,9 @@
 		compatible = "gpio-leds";
 
 		lan {
-			label = "green:lan";
+			function = LED_FUNCTION_LAN;
+			color = <LED_COLOR_ID_GREEN>;
 			gpios = <&gpio 18 GPIO_ACTIVE_LOW>;
-		};
-
-		wlan {
-			label = "green:wlan";
-			gpios = <&gpio 13 GPIO_ACTIVE_LOW>;
-			linux,default-trigger = "phy0tpt";
 		};
 
 		qss {
@@ -47,5 +44,12 @@
 			label = "green:system";
 			gpios = <&gpio 14 GPIO_ACTIVE_LOW>;
 		};
+	};
+};
+
+&wmac {
+	led {
+		led-sources = <13>;
+		led-active-low;
 	};
 };

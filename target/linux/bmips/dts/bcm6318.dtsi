@@ -6,6 +6,8 @@
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/interrupt-controller/bcm6318-interrupt-controller.h>
+#include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/leds/common.h>
 #include <dt-bindings/reset/bcm6318-reset.h>
 #include <dt-bindings/soc/bcm6318-pm.h>
 
@@ -103,6 +105,7 @@
 			interrupt-controller;
 			#interrupt-cells = <2>;
 
+			interrupt-parent = <&periph_intc>;
 			interrupts = <BCM6318_IRQ_EXT0>,
 				     <BCM6318_IRQ_EXT1>,
 				     <BCM6318_IRQ_EXT2>,
@@ -143,6 +146,8 @@
 		};
 
 		gpio_cntl: syscon@10000080 {
+			#address-cells = <1>;
+			#size-cells = <1>;
 			compatible = "brcm,bcm6318-gpio-sysctl",
 				     "syscon", "simple-mfd";
 			reg = <0x10000080 0x80>;
@@ -254,6 +259,12 @@
 					function = "usb_active";
 					pins = "gpio40";
 				};
+			};
+
+			ephy_rst: reset-controller@3c {
+				compatible = "brcm,bcm6345-reset";
+				reg = <0x3c 0x4>;
+				#reset-cells = <1>;
 			};
 		};
 
@@ -390,9 +401,11 @@
 		switch0: switch@10080000 {
 			#address-cells = <1>;
 			#size-cells = <0>;
-			compatible = "brcm,bcm6328-switch";
+			compatible = "brcm,bcm6318-switch";
 			reg = <0x10080000 0x8000>;
 			big-endian;
+
+			brcm,gpio-ctrl = <&gpio_cntl>;
 
 			ports {
 				#address-cells = <1>;
@@ -400,7 +413,6 @@
 
 				port@8 {
 					reg = <8>;
-					label = "cpu";
 
 					phy-mode = "internal";
 					ethernet = <&ethernet>;
@@ -427,21 +439,41 @@
 				phy1: ethernet-phy@1 {
 					compatible = "ethernet-phy-ieee802.3-c22";
 					reg = <1>;
+
+					resets = <&ephy_rst 0>;
+					reset-names = "phy";
+					reset-assert-us = <2000>;
+					reset-deassert-us = <2000>;
 				};
 
 				phy2: ethernet-phy@2 {
 					compatible = "ethernet-phy-ieee802.3-c22";
 					reg = <2>;
+
+					resets = <&ephy_rst 1>;
+					reset-names = "phy";
+					reset-assert-us = <2000>;
+					reset-deassert-us = <2000>;
 				};
 
 				phy3: ethernet-phy@3 {
 					compatible = "ethernet-phy-ieee802.3-c22";
 					reg = <3>;
+
+					resets = <&ephy_rst 2>;
+					reset-names = "phy";
+					reset-assert-us = <2000>;
+					reset-deassert-us = <2000>;
 				};
 
 				phy4: ethernet-phy@4 {
 					compatible = "ethernet-phy-ieee802.3-c22";
 					reg = <4>;
+
+					resets = <&ephy_rst 3>;
+					reset-names = "phy";
+					reset-assert-us = <2000>;
+					reset-deassert-us = <2000>;
 				};
 			};
 

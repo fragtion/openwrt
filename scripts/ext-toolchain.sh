@@ -27,6 +27,7 @@ CFLAGS=""
 TOOLCHAIN="."
 
 LIBC_TYPE=""
+GCC_VERSION=""
 
 
 # Library specs
@@ -40,6 +41,12 @@ LIB_SPECS="
 	ssp:      libssp
 	gfortran: libgfortran
 	gomp:	  libgomp
+	atomic:	  libatomic
+	quadmath: libquadmath
+	asan:	  libasan
+	tasan:	  libtsan
+	lasan:	  liblsan
+	ubasan:	  libubsan
 "
 
 # Binary specs
@@ -50,6 +57,7 @@ BIN_SPECS="
 	gdbserver: gdbserver
 "
 
+OVERWRITE_CONFIG=""
 
 test_c() {
 	cat <<-EOT | "${CC:-false}" $CFLAGS -o /dev/null -x c - 2>/dev/null
@@ -146,6 +154,11 @@ test_feature() {
 find_libs() {
 	local spec="$(echo "$LIB_SPECS" | sed -ne "s#^[[:space:]]*$1:##ip")"
 
+	# glibc doesn't have libcrypt since 2.39
+	if [ "$LIBC_TYPE" = "glibc" ]; then
+		spec=$(printf '%s' "${spec}" | sed 's/,crypt,//')
+	fi
+
 	if [ -n "$spec" ] && probe_cpp; then
 		local libdir libdirs
 		for libdir in $(
@@ -196,6 +209,19 @@ find_bins() {
 	fi
 
 	return 1
+}
+
+find_gcc_version() {
+	if [ -f $TOOLCHAIN/info.mk ]; then
+		GCC_VERSION=$(grep GCC_VERSION $TOOLCHAIN/info.mk | sed 's/GCC_VERSION=//')
+		return 0
+	fi
+
+	echo "Warning! Can't find info.mk, trying to detect with alternative way."
+
+	# Very fragile detection
+	GCC_VERSION=$(find $TOOLCHAIN/bin | grep -oE "gcc-[0-9]+\.[0-9]+\.[0-9]+$" | \
+		head -1 | sed 's/gcc-//')
 }
 
 
@@ -256,6 +282,9 @@ wrap_bins() {
 				fi
 
 				case "${cmd##*/}" in
+					*-gcc-ar|*-gcc-nm|*-gcc-ranlib)
+						wrap_bin_other "$out" "$bin"
+					;;
 					*-*cc|*-*cc-*|*-*++|*-*++-*|*-cpp)
 						wrap_bin_cc "$out" "$bin"
 					;;
@@ -281,8 +310,11 @@ print_config() {
 	local mksubtarget
 
 	local target="$("$CC" $CFLAGS -dumpmachine)"
+	local version="$("$CC" $CFLAGS -dumpversion)"
 	local cpuarch="${target%%-*}"
-	local prefix="${CC##*/}"; prefix="${prefix%-*}-"
+
+	# get CC; strip version; strip gcc and add - suffix
+	local prefix="${CC##*/}"; prefix="${prefix%-$version}"; prefix="${prefix%-*}-"
 	local config="${0%/scripts/*}/.config"
 
 	# if no target specified, print choice list and exit
@@ -317,9 +349,13 @@ print_config() {
 	fi
 
 	# bail out if there is a .config already
-	if [ -f "${0%/scripts/*}/.config" ]; then
-		echo "There already is a .config file, refusing to overwrite!" >&2
-		return 1
+	if [ -f "$config" ]; then
+		if [ "$OVERWRITE_CONFIG" == "" ]; then
+			echo "There already is a .config file, refusing to overwrite!" >&2
+			return 1
+		else
+			echo "There already is a .config file, trying to overwrite!"
+		fi
 	fi
 
 	case "$mktarget" in */*)
@@ -327,8 +363,11 @@ print_config() {
 		mktarget="${mktarget%/*}"
 	;; esac
 
+	if [ ! -f "$config" ]; then
+		touch "$config"
+	fi
 
-	echo "CONFIG_TARGET_${mktarget}=y" > "$config"
+	echo "CONFIG_TARGET_${mktarget}=y" >> "$config"
 
 	if [ -n "$mksubtarget" ]; then
 		echo "CONFIG_TARGET_${mktarget}_${mksubtarget}=y" >> "$config"
@@ -358,12 +397,29 @@ print_config() {
 	echo "CONFIG_TOOLCHAIN_PREFIX=\"$prefix\"" >> "$config"
 	echo "CONFIG_TARGET_NAME=\"$target\"" >> "$config"
 
-	if [ "$LIBC_TYPE" != glibc ]; then
-		echo "CONFIG_TOOLCHAIN_LIBC=\"$LIBC_TYPE\"" >> "$config"
+	if [ -f "$config" ]; then
+		sed -i '/CONFIG_EXTERNAL_TOOLCHAIN_LIBC_USE_MUSL/d' "$config"
+		sed -i '/CONFIG_EXTERNAL_TOOLCHAIN_LIBC_USE_GLIBC/d' "$config"
+	fi
+
+	if [ "$LIBC_TYPE" == glibc ]; then
+		echo "CONFIG_EXTERNAL_TOOLCHAIN_LIBC_USE_GLIBC=y" >> "$config"
+	elif [ "$LIBC_TYPE" == musl ]; then
+		echo "CONFIG_EXTERNAL_TOOLCHAIN_LIBC_USE_MUSL=y" >> "$config"
+	else
+		echo "Can't detect LIBC type. Aborting!" >&2
+		return 1
+	fi
+
+	if [ -n "$GCC_VERSION" ]; then
+		echo "CONFIG_EXTERNAL_GCC_VERSION=\"$GCC_VERSION\"" >> "$config"
+	else
+		echo "Can't detect GCC version. Aborting!" >&2
+		return 1
 	fi
 
 	local lib
-	for lib in C RT PTHREAD GCC STDCPP SSP GFORTRAN GOMP; do
+	for lib in C RT PTHREAD GCC STDCPP SSP GFORTRAN GOMP ATOMIC QUADMATH ASAN TSAN LSAN UBSAN; do
 		local file
 		local spec=""
 		local llib="$(echo "$lib" | sed -e 's#.*#\L&#')"
@@ -452,6 +508,13 @@ probe_cpp() {
 }
 
 probe_libc() {
+	if [ -f $TOOLCHAIN/info.mk ]; then
+		LIBC_TYPE=$(grep LIBC_TYPE $TOOLCHAIN/info.mk | sed 's/LIBC_TYPE=//')
+		return 0
+	fi
+
+	echo "Warning! Can't find info.mk, trying to detect with alternative way."
+
 	if [ -z "$LIBC_TYPE" ]; then
 		if test_uclibc; then
 			LIBC_TYPE="uclibc"
@@ -529,8 +592,14 @@ while [ -n "$1" ]; do
 			exit $?
 		;;
 
+		--overwrite-config)
+			OVERWRITE_CONFIG=y
+		;;
+
 		--config)
 			if probe_cc; then
+				probe_libc
+				find_gcc_version
 				print_config "$1"
 				exit $?
 			fi
@@ -570,6 +639,8 @@ while [ -n "$1" ]; do
 			echo -e "  is used to specify C flags to be passed to the "     >&2
 			echo -e "  cross compiler when performing tests."               >&2
 			echo -e "  This parameter may be repeated multiple times."      >&2
+			echo -e "  Use --overwrite-config before --config to overwrite" >&2
+			echo -e "  an already present config with the required changes.">&2
 			exit 1
 		;;
 

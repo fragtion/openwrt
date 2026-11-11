@@ -28,6 +28,12 @@
 		bootargs = "console=ttyATH0,115200";
 	};
 
+	ref: ref {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-output-names = "ref";
+	};
+
 	ahb {
 		apb {
 			ddr_ctrl: memory-controller@18000000 {
@@ -83,7 +89,11 @@
 				compatible = "qca,ar9330-pll";
 				reg = <0x18050000 0x100>;
 
+				clocks = <&ref>;
+				clock-names = "ref";
+
 				#clock-cells = <1>;
+				clock-output-names = "cpu", "ddr", "ahb";
 			};
 
 			wdt: wdt@18060008 {
@@ -110,7 +120,6 @@
 
 			interrupts = <3>;
 			resets = <&rst 5>;
-			reset-names = "usb-host";
 
 			phy-names = "usb-phy";
 			phys = <&usb_phy>;
@@ -119,6 +128,11 @@
 
 			#address-cells = <1>;
 			#size-cells = <0>;
+
+			hub_port: port@1 {
+				reg = <1>;
+				#trigger-source-cells = <0>;
+			};
 		};
 
 		spi: spi@1f000000 {
@@ -139,7 +153,7 @@
 		};
 
 		wmac: wmac@18100000 {
-			compatible = "qca,ar9330-wmac";
+			compatible = "qca,ar9330-wifi";
 			reg = <0x18100000 0x20000>;
 
 			interrupts = <2>;
@@ -151,7 +165,7 @@
 	usb_phy: usb-phy {
 		compatible = "qca,ar7200-usb-phy";
 
-		reset-names = "usb-phy", "usb-suspend-override";
+		reset-names = "phy", "suspend-override";
 		resets = <&rst 4>, <&rst 3>;
 
 		#phy-cells = <0>;
@@ -207,6 +221,7 @@
 
 	pll-data = <0x00110000 0x00001099 0x00991099>;
 	phy-mode = "gmii";
+	builtin-switch;
 
 	resets = <&rst 13>;
 	reset-names = "mac";

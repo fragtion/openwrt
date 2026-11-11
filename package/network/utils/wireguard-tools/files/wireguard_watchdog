@@ -53,13 +53,13 @@ check_peer_activity() {
   last_handshake=$(wg show ${iface} latest-handshakes | grep ${public_key} | awk '{print $2}')
   [ -z ${last_handshake} ] && return 0;
   idle_seconds=$(($(date +%s)-${last_handshake}))
-  [ ${idle_seconds} -lt 150 ] && return 0;
+  [ ${idle_seconds} -lt 180 ] && return 0;
   logger -t "wireguard_monitor" "${iface} endpoint ${endpoint_host}:${endpoint_port} is not responding for ${idle_seconds} seconds, trying to re-resolve hostname"
   wg set ${iface} peer ${public_key} endpoint "${endpoint_host}:${endpoint_port}"
 }
 
 # query ubus for all active wireguard interfaces
-wg_ifaces=$(ubus -S call network.interface dump | jsonfilter -e '@.interface[@.up=true]' | jsonfilter -a -e '@[@.proto="wireguard"].interface' | tr "\n" " ")
+eval $(ubus -S call network.interface dump | jsonfilter -e 'wg_ifaces=@.interface[@.up=true && @.proto="wireguard"].interface')
 
 # check every peer in every active wireguard interface
 config_load network

@@ -5,9 +5,9 @@ PKG_RELEASE:=1
 
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL=$(PROJECT_GIT)/project/jsonpath.git
-PKG_SOURCE_DATE:=2018-02-04
-PKG_SOURCE_VERSION:=c7e938d6582a436dddc938539e72dd1320625c54
-PKG_MIRROR_HASH:=0601b4d7aa5ee096e99388a57cb0701673ab58fccd6ed2984a2abbd4f846e045
+PKG_SOURCE_DATE:=2026-03-16
+PKG_SOURCE_VERSION:=b9034210bd331749673416c6bf389cccd4e23610
+PKG_MIRROR_HASH:=e8616b3eee53c6dd3420a7d800337e13a61e1333dfbd8551b50ab15bafd94a0e
 CMAKE_INSTALL:=1
 
 PKG_MAINTAINER:=Jo-Philipp Wich <jo@mein.io>
@@ -21,7 +21,7 @@ define Package/jsonfilter
   CATEGORY:=Base system
   DEPENDS:=+libubox +libjson-c
   TITLE:=OpenWrt JSON filter utility
-  URL:=http://git.openwrt.org/?p=project/jsonpath.git
+  URL:=$(PKG_SOURCE_URL)
 endef
 
 define Package/jsonfilter/install

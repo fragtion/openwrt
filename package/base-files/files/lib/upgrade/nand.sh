@@ -7,6 +7,9 @@
 CI_KERNPART="${CI_KERNPART:-kernel}"
 
 # 'ubi' partition on NAND contains UBI
+# If individual UBI volumes are on different partitions,
+# they can be set with CI_KERN_UBIPART, CI_ROOT_UBIPART and/or
+# CI_DATA_UBIPART.
 CI_UBIPART="${CI_UBIPART:-ubi}"
 
 # 'rootfs' UBI volume on NAND contains the rootfs
@@ -26,7 +29,7 @@ ubi_mknod() {
 
 nand_find_volume() {
 	local ubidevdir ubivoldir
-	ubidevdir="/sys/devices/virtual/ubi/$1"
+	ubidevdir="/sys/class/ubi/"
 	[ ! -d "$ubidevdir" ] && return 1
 	for ubivoldir in $ubidevdir/${1}_*; do
 		[ ! -d "$ubivoldir" ] && continue
@@ -39,13 +42,12 @@ nand_find_volume() {
 }
 
 nand_find_ubi() {
-	local ubidevdir ubidev mtdnum
+	local ubidevdir ubidev mtdnum cmtdnum
 	mtdnum="$( find_mtd_index $1 )"
 	[ ! "$mtdnum" ] && return 1
-	for ubidevdir in /sys/devices/virtual/ubi/ubi*; do
-		[ ! -d "$ubidevdir" ] && continue
+	for ubidevdir in /sys/class/ubi/ubi*; do
+		[ ! -e "$ubidevdir/mtd_num" ] && continue
 		cmtdnum="$( cat $ubidevdir/mtd_num )"
-		[ ! "$mtdnum" ] && continue
 		if [ "$mtdnum" = "$cmtdnum" ]; then
 			ubidev=$( basename $ubidevdir )
 			ubi_mknod "$ubidevdir"
@@ -56,128 +58,186 @@ nand_find_ubi() {
 }
 
 nand_get_magic_long() {
-	dd if="$1" skip=$2 bs=4 count=1 2>/dev/null | hexdump -v -n 4 -e '1/1 "%02x"'
+	($2 < "$1" | dd bs=4 "skip=${3:-0}" count=1 | hexdump -v -n 4 -e '1/1 "%02x"') 2> /dev/null
 }
 
 get_magic_long_tar() {
-	( tar xf $1 $2 -O | dd bs=4 count=1 | hexdump -v -n 4 -e '1/1 "%02x"') 2> /dev/null
+	($2 < "$1" | tar xOf - "$3" | dd bs=4 count=1 | hexdump -v -n 4 -e '1/1 "%02x"') 2> /dev/null
 }
-
-identify_magic() {
-	local magic=$1
-	case "$magic" in
-		"55424923")
-			echo "ubi"
-			;;
-		"31181006")
-			echo "ubifs"
-			;;
-		"68737173")
-			echo "squashfs"
-			;;
-		"d00dfeed")
-			echo "fit"
-			;;
-		"4349"*)
-			echo "combined"
-			;;
-		*)
-			echo "unknown $magic"
-			;;
-	esac
-}
-
 
 identify() {
-	identify_magic $(nand_get_magic_long "$1" "${2:-0}")
+	identify_magic_long $(nand_get_magic_long "$@")
 }
 
 identify_tar() {
-	identify_magic $(get_magic_long_tar "$1" "$2")
+	identify_magic_long $(get_magic_long_tar "$@")
+}
+
+identify_if_gzip() {
+	if [ "$(identify "$1" "cat")" = gzip ]; then echo -n z; fi
 }
 
 nand_restore_config() {
-	sync
-	local ubidev=$( nand_find_ubi $CI_UBIPART )
+	local ubidev=$( nand_find_ubi "${CI_DATA_UBIPART:-$CI_UBIPART}" )
 	local ubivol="$( nand_find_volume $ubidev rootfs_data )"
-	[ ! "$ubivol" ] &&
-		ubivol="$( nand_find_volume $ubidev $CI_ROOTPART )"
+	if [ ! "$ubivol" ]; then
+		local ubidev=$( nand_find_ubi "${CI_ROOT_UBIPART:-$CI_UBIPART}" )
+		ubivol="$( nand_find_volume $ubidev "$CI_ROOTPART" )"
+		if [ ! "$ubivol" ]; then
+			echo "cannot find ubifs data volume"
+			return 1
+		fi
+	fi
 	mkdir /tmp/new_root
 	if ! mount -t ubifs /dev/$ubivol /tmp/new_root; then
-		echo "mounting ubifs $ubivol failed"
+		echo "cannot mount ubifs volume $ubivol"
 		rmdir /tmp/new_root
 		return 1
 	fi
-	mv "$1" "/tmp/new_root/$BACKUP_FILE"
-	umount /tmp/new_root
-	sync
+	if mv "$1" "/tmp/new_root/$BACKUP_FILE"; then
+		if umount /tmp/new_root; then
+			echo "configuration saved"
+			rmdir /tmp/new_root
+			return 0
+		fi
+	else
+		umount /tmp/new_root
+	fi
+	echo "could not save configuration to ubifs volume $ubivol"
 	rmdir /tmp/new_root
+	return 1
+}
+
+nand_remove_ubiblock() {
+	local ubivol="$1"
+
+	local ubiblk="ubiblock${ubivol:3}"
+	if [ -e "/dev/$ubiblk" ]; then
+		umount "/dev/$ubiblk" 2>/dev/null && echo "unmounted /dev/$ubiblk" || :
+		if ! ubiblock -r "/dev/$ubivol"; then
+			echo "cannot remove $ubiblk"
+			return 1
+		fi
+	fi
+}
+
+nand_attach_ubi() {
+	local ubipart="$1"
+	local has_env="${2:-0}"
+
+	local mtdnum="$( find_mtd_index "$ubipart" )"
+	if [ ! "$mtdnum" ]; then
+		>&2 echo "cannot find ubi mtd partition $ubipart"
+		return 1
+	fi
+
+	local ubidev="$( nand_find_ubi "$ubipart" )"
+	if [ ! "$ubidev" ]; then
+		>&2 ubiattach -m "$mtdnum"
+		ubidev="$( nand_find_ubi "$ubipart" )"
+
+		if [ ! "$ubidev" ]; then
+			>&2 ubiformat /dev/mtd$mtdnum -y
+			>&2 ubiattach -m "$mtdnum"
+			ubidev="$( nand_find_ubi "$ubipart" )"
+
+			if [ ! "$ubidev" ]; then
+				>&2 echo "cannot attach ubi mtd partition $ubipart"
+				return 1
+			fi
+
+			if [ "$has_env" -gt 0 ]; then
+				>&2 ubimkvol /dev/$ubidev -n 0 -N ubootenv -s 1MiB
+				>&2 ubimkvol /dev/$ubidev -n 1 -N ubootenv2 -s 1MiB
+			fi
+		fi
+	fi
+
+	echo "$ubidev"
+	return 0
+}
+
+nand_detach_ubi() {
+	local ubipart="$1"
+
+	local mtdnum="$( find_mtd_index "$ubipart" )"
+	if [ ! "$mtdnum" ]; then
+		echo "cannot find ubi mtd partition $ubipart"
+		return 1
+	fi
+
+	local ubidev="$( nand_find_ubi "$ubipart" )"
+	if [ "$ubidev" ]; then
+		for ubivol in $(find /dev -name "${ubidev}_*" -maxdepth 1 | sort); do
+			ubivol="${ubivol:5}"
+			nand_remove_ubiblock "$ubivol" || :
+			umount "/dev/$ubivol" && echo "unmounted /dev/$ubivol" || :
+		done
+		if ! ubidetach -m "$mtdnum"; then
+			echo "cannot detach ubi mtd partition $ubipart"
+			return 1
+		fi
+	fi
 }
 
 nand_upgrade_prepare_ubi() {
 	local rootfs_length="$1"
 	local rootfs_type="$2"
-	local rootfs_data_max="$(fw_printenv -n rootfs_data_max 2>/dev/null)"
+	local rootfs_data_max="$(fw_printenv -n rootfs_data_max 2> /dev/null)"
 	[ -n "$rootfs_data_max" ] && rootfs_data_max=$((rootfs_data_max))
 
 	local kernel_length="$3"
 	local has_env="${4:-0}"
+	local kern_ubidev
+	local root_ubidev
+	local data_ubidev
 
 	[ -n "$rootfs_length" -o -n "$kernel_length" ] || return 1
 
-	local mtdnum="$( find_mtd_index "$CI_UBIPART" )"
-	if [ ! "$mtdnum" ]; then
-		echo "cannot find ubi mtd partition $CI_UBIPART"
-		return 1
-	fi
+	# Attach UBI partitions (might be identical, but nand_attach_ubi handles that)
+	kern_ubidev="$( nand_attach_ubi "${CI_KERN_UBIPART:-$CI_UBIPART}" "$has_env" )"
+	[ -n "$kern_ubidev" ] || return 1
+	root_ubidev="$( nand_attach_ubi "${CI_ROOT_UBIPART:-$CI_UBIPART}" )"
+	[ -n "$root_ubidev" ] || return 1
+	data_ubidev="$( nand_attach_ubi "${CI_DATA_UBIPART:-$CI_UBIPART}" )"
+	[ -n "$data_ubidev" ] || return 1
 
-	local ubidev="$( nand_find_ubi "$CI_UBIPART" )"
-	if [ ! "$ubidev" ]; then
-		ubiattach -m "$mtdnum"
-		sync
-		ubidev="$( nand_find_ubi "$CI_UBIPART" )"
-	fi
+	local kern_ubivol="$( nand_find_volume $kern_ubidev "$CI_KERNPART" )"
+	local root_ubivol="$( nand_find_volume $root_ubidev "$CI_ROOTPART" )"
+	local data_ubivol="$( nand_find_volume $data_ubidev rootfs_data )"
+	[ "$root_ubivol" = "$kern_ubivol" ] && root_ubivol=
 
-	if [ ! "$ubidev" ]; then
-		ubiformat /dev/mtd$mtdnum -y
-		ubiattach -m "$mtdnum"
-		sync
-		ubidev="$( nand_find_ubi "$CI_UBIPART" )"
-		[ "$has_env" -gt 0 ] && {
-			ubimkvol /dev/$ubidev -n 0 -N ubootenv -s 1MiB
-			ubimkvol /dev/$ubidev -n 1 -N ubootenv2 -s 1MiB
+	# remove ubiblocks
+	[ "$kern_ubivol" ] && { nand_remove_ubiblock $kern_ubivol || return 1; }
+	[ "$root_ubivol" ] && { nand_remove_ubiblock $root_ubivol || return 1; }
+	[ "$data_ubivol" ] && { nand_remove_ubiblock $data_ubivol || return 1; }
+
+	# kill volumes
+	[ "$kern_ubivol" ] && ubirmvol /dev/$kern_ubidev -N "$CI_KERNPART" || :
+	[ "$root_ubivol" ] && ubirmvol /dev/$root_ubidev -N "$CI_ROOTPART" || :
+	[ "$data_ubivol" ] && ubirmvol /dev/$data_ubidev -N rootfs_data || :
+
+	# create provisioning vol with the last volume ID, so the kernel and
+	# rootfs volumes keep their IDs; some devices hardcode them in root=
+	if [ "${UPGRADE_OPT_ADD_PROVISIONING:-0}" -gt 0 ]; then
+		[ -n "$(nand_find_volume $root_ubidev provisioning)" ] || {
+			local prov_id=$(( $(cat /sys/class/ubi/$root_ubidev/max_vol_count) - 1 ))
+			if ! ubimkvol /dev/$root_ubidev -N provisioning -n $prov_id -s 131072; then
+				echo "cannot create provisioning volume"
+				return 1
+			fi
 		}
 	fi
 
-	local kern_ubivol="$( nand_find_volume $ubidev $CI_KERNPART )"
-	local root_ubivol="$( nand_find_volume $ubidev $CI_ROOTPART )"
-	local data_ubivol="$( nand_find_volume $ubidev rootfs_data )"
-
-	local ubiblk ubiblkvol
-	for ubiblk in /dev/ubiblock*_? ; do
-		[ -e "$ubiblk" ] || continue
-		echo "removing ubiblock${ubiblk:13}"
-		ubiblkvol=ubi${ubiblk:13}
-		if ! ubiblock -r /dev/$ubiblkvol; then
-			echo "cannot remove $ubiblk"
-			return 1
-		fi
-	done
-
-	# kill volumes
-	[ "$kern_ubivol" ] && ubirmvol /dev/$ubidev -N $CI_KERNPART || true
-	[ "$root_ubivol" -a "$root_ubivol" != "$kern_ubivol" ] && ubirmvol /dev/$ubidev -N $CI_ROOTPART || true
-	[ "$data_ubivol" ] && ubirmvol /dev/$ubidev -N rootfs_data || true
-
-	# update kernel
+	# create kernel vol
 	if [ -n "$kernel_length" ]; then
-		if ! ubimkvol /dev/$ubidev -N $CI_KERNPART -s $kernel_length; then
+		if ! ubimkvol /dev/$kern_ubidev -N "$CI_KERNPART" -s $kernel_length; then
 			echo "cannot create kernel volume"
 			return 1;
 		fi
 	fi
 
-	# update rootfs
+	# create rootfs vol
 	if [ -n "$rootfs_length" ]; then
 		local rootfs_size_param
 		if [ "$rootfs_type" = "ubifs" ]; then
@@ -185,158 +245,245 @@ nand_upgrade_prepare_ubi() {
 		else
 			rootfs_size_param="-s $rootfs_length"
 		fi
-		if ! ubimkvol /dev/$ubidev -N $CI_ROOTPART $rootfs_size_param; then
+		if ! ubimkvol /dev/$root_ubidev -N "$CI_ROOTPART" $rootfs_size_param; then
 			echo "cannot create rootfs volume"
 			return 1;
 		fi
 	fi
 
-	# create rootfs_data for non-ubifs rootfs
+	# create rootfs_data vol for non-ubifs rootfs
 	if [ "$rootfs_type" != "ubifs" ]; then
-		local availeb=$(cat /sys/devices/virtual/ubi/$ubidev/avail_eraseblocks)
-		local ebsize=$(cat /sys/devices/virtual/ubi/$ubidev/eraseblock_size)
-		local avail_size=$((availeb * ebsize))
 		local rootfs_data_size_param="-m"
-		if [ -n "$rootfs_data_max" ] &&
-		   [ "$rootfs_data_max" != "0" ] &&
-		   [ "$rootfs_data_max" -le "$avail_size" ]; then
+		if [ -n "$rootfs_data_max" ]; then
 			rootfs_data_size_param="-s $rootfs_data_max"
 		fi
-		if ! ubimkvol /dev/$ubidev -N rootfs_data $rootfs_data_size_param; then
-			echo "cannot initialize rootfs_data volume"
-			return 1
+		if ! ubimkvol /dev/$data_ubidev -N rootfs_data $rootfs_data_size_param; then
+			if ! ubimkvol /dev/$data_ubidev -N rootfs_data -m; then
+				echo "cannot initialize rootfs_data volume"
+				return 1
+			fi
 		fi
 	fi
-	sync
+
 	return 0
 }
 
-nand_do_upgrade_success() {
+# Write the UBI image to MTD ubi partition
+nand_upgrade_ubinized() {
+	local ubi_file="$1"
+	local cmd="$2"
+
+	local ubi_length=$( ($cmd < "$ubi_file" | wc -c) 2> /dev/null)
+
+	nand_detach_ubi "$CI_UBIPART" || return 1
+
+	local mtdnum="$( find_mtd_index "$CI_UBIPART" )"
+	$cmd < "$ubi_file" | ubiformat "/dev/mtd$mtdnum" -S "$ubi_length" -y -f - && ubiattach -m "$mtdnum"
+}
+
+# Write the UBIFS image to UBI rootfs volume
+nand_upgrade_ubifs() {
+	local ubifs_file="$1"
+	local cmd="$2"
+
+	local ubifs_length=$( ($cmd < "$ubifs_file" | wc -c) 2> /dev/null)
+
+	nand_upgrade_prepare_ubi "$ubifs_length" "ubifs" "" "" || return 1
+
+	local root_ubidev="$( nand_find_ubi "${CI_ROOT_UBIPART:-$CI_UBIPART}" )"
+	local root_ubivol="$(nand_find_volume $root_ubidev "$CI_ROOTPART")"
+	$cmd < "$ubifs_file" | ubiupdatevol /dev/$root_ubivol -s "$ubifs_length" -
+}
+
+# Write the FIT image to UBI kernel volume
+nand_upgrade_fit() {
+	local fit_file="$1"
+	local cmd="$2"
+
+	local fit_length=$( ($cmd < "$fit_file" | wc -c) 2> /dev/null)
+
+	nand_upgrade_prepare_ubi "" "" "$fit_length" "1" || return 1
+
+	local fit_ubidev="$(nand_find_ubi "${CI_KERN_UBIPART:-$CI_UBIPART}")"
+	local fit_ubivol="$(nand_find_volume $fit_ubidev "$CI_KERNPART")"
+	$cmd < "$fit_file" | ubiupdatevol /dev/$fit_ubivol -s "$fit_length" -
+}
+
+# Write images in the TAR file to MTD partitions and/or UBI volumes as required
+nand_upgrade_tar() {
+	local tar_file="$1"
+	local cmd="${2:-cat}"
+	local jffs2_markers="${CI_JFFS2_CLEAN_MARKERS:-0}"
+
+	# WARNING: This fails if tar contains more than one 'sysupgrade-*' directory.
+	local board_dir="$($cmd < "$tar_file" | tar tf - | grep -m 1 '^sysupgrade-.*/$')"
+	board_dir="${board_dir%/}"
+
+	local kernel_mtd kernel_length
+	if [ "$CI_KERNPART" != "none" ]; then
+		kernel_mtd="$(find_mtd_index "$CI_KERNPART")"
+		kernel_length=$( ($cmd < "$tar_file" | tar xOf - "$board_dir/kernel" | wc -c) 2> /dev/null)
+		[ "$kernel_length" = 0 ] && kernel_length=
+	fi
+	local rootfs_length=$( ($cmd < "$tar_file" | tar xOf - "$board_dir/root" | wc -c) 2> /dev/null)
+	[ "$rootfs_length" = 0 ] && rootfs_length=
+	local rootfs_type
+	[ "$rootfs_length" ] && rootfs_type="$(identify_tar "$tar_file" "$cmd" "$board_dir/root")"
+
+	# If CI_SKIP_KERNEL_MTD is set, ignore any potential kernel MTD partition that was found.
+	# This is needed if there's an MTD partition with the same name as the kernel's UBI volume.
+	[ "${CI_SKIP_KERNEL_MTD:-}" ] && kernel_mtd=
+
+	local ubi_kernel_length
+	if [ "$kernel_length" ]; then
+		if [ "$kernel_mtd" ]; then
+			# On some devices, the raw kernel and ubi partitions overlap.
+			# These devices brick if the kernel partition is erased.
+			# Hence only invalidate kernel for now.
+			dd if=/dev/zero bs=4096 count=1 2> /dev/null | \
+				mtd write - "$CI_KERNPART"
+		else
+			ubi_kernel_length="$kernel_length"
+		fi
+	fi
+
+	local has_env=0
+	nand_upgrade_prepare_ubi "$rootfs_length" "$rootfs_type" "$ubi_kernel_length" "$has_env" || return 1
+
+	if [ "$rootfs_length" ]; then
+		local ubidev="$( nand_find_ubi "${CI_ROOT_UBIPART:-$CI_UBIPART}" )"
+		local root_ubivol="$( nand_find_volume $ubidev "$CI_ROOTPART" )"
+		$cmd < "$tar_file" | tar xOf - "$board_dir/root" | \
+			ubiupdatevol /dev/$root_ubivol -s "$rootfs_length" -
+	fi
+	if [ "$kernel_length" ]; then
+		if [ "$kernel_mtd" ]; then
+			if [ "$jffs2_markers" = 1 ]; then
+				flash_erase -j "/dev/mtd${kernel_mtd}" 0 0
+				$cmd < "$tar_file" | tar xOf - "$board_dir/kernel" | \
+					nandwrite "/dev/mtd${kernel_mtd}" -
+			else
+				$cmd < "$tar_file" | tar xOf - "$board_dir/kernel" | \
+					mtd write - "$CI_KERNPART"
+			fi
+		else
+			local ubidev="$( nand_find_ubi "${CI_KERN_UBIPART:-$CI_UBIPART}" )"
+			local kern_ubivol="$( nand_find_volume $ubidev "$CI_KERNPART" )"
+			$cmd < "$tar_file" | tar xOf - "$board_dir/kernel" | \
+				ubiupdatevol /dev/$kern_ubivol -s "$kernel_length" -
+		fi
+	fi
+
+	return 0
+}
+
+nand_verify_if_gzip_file() {
+	local file="$1"
+	local cmd="$2"
+
+	if [ "$cmd" = zcat ]; then
+		echo "verifying compressed sysupgrade file integrity"
+		if ! gzip -t "$file"; then
+			echo "corrupted compressed sysupgrade file"
+			return 1
+		fi
+	fi
+}
+
+nand_verify_tar_file() {
+	local file="$1"
+	local cmd="$2"
+
+	echo "verifying sysupgrade tar file integrity"
+	if ! $cmd < "$file" | tar xOf - > /dev/null; then
+		echo "corrupted sysupgrade tar file"
+		return 1
+	fi
+}
+
+nand_do_flash_file() {
+	local file="$1"
+	local cmd="$2"
+	local file_type
+
+	[ -z "$cmd" ] && cmd="$(identify_if_gzip "$file")cat"
+	file_type="$(identify "$file" "$cmd" "")"
+
+	[ ! "$(find_mtd_index "$CI_UBIPART")" ] && CI_UBIPART=rootfs
+
+	case "$file_type" in
+		"fit")
+			nand_verify_if_gzip_file "$file" "$cmd" || return 1
+			nand_upgrade_fit "$file" "$cmd"
+			;;
+		"ubi")
+			nand_verify_if_gzip_file "$file" "$cmd" || return 1
+			nand_upgrade_ubinized "$file" "$cmd"
+			;;
+		"ubifs")
+			nand_verify_if_gzip_file "$file" "$cmd" || return 1
+			nand_upgrade_ubifs "$file" "$cmd"
+			;;
+		*)
+			nand_verify_tar_file "$file" "$cmd" || return 1
+			nand_upgrade_tar "$file" "$cmd"
+			;;
+	esac
+}
+
+nand_do_restore_config() {
 	local conf_tar="/tmp/sysupgrade.tgz"
+	[ ! -f "$conf_tar" ] || nand_restore_config "$conf_tar"
+}
+
+# Recognize type of passed file and start the upgrade process
+#
+# Supported firmware containers:
+# 1. Raw file
+# 2. Gzip
+# 3. Custom (requires passing extracting command)
+#
+# Supported data formats:
+# 1. Tar with kernel/rootfs
+# 2. UBI image (built using "ubinized")
+# 3. UBIFS image (to update UBI volume with)
+# 4. FIT image (to update UBI volume with)
+#
+# $(1): firmware file path
+# $(2): (optional) pipe command to extract firmware
+nand_do_upgrade() {
+	local file="$1"
+	local cmd="$2"
 
 	sync
-	[ -f "$conf_tar" ] && nand_restore_config "$conf_tar"
-	echo "sysupgrade successful"
+	nand_do_flash_file "$file" "$cmd" && nand_do_upgrade_success
+	nand_do_upgrade_failed
+}
+
+nand_do_upgrade_success() {
+	if nand_do_restore_config && sync; then
+		echo "sysupgrade successful"
+		umount -a
+		reboot -f
+	fi
+	nand_do_upgrade_failed
+}
+
+nand_do_upgrade_failed() {
+	sync
+	echo "sysupgrade failed"
+	# Should we reboot or bring up some failsafe mode instead?
 	umount -a
 	reboot -f
 }
 
-# Flash the UBI image to MTD partition
-nand_upgrade_ubinized() {
-	local ubi_file="$1"
-	local mtdnum="$(find_mtd_index "$CI_UBIPART")"
-
-	[ ! "$mtdnum" ] && {
-		CI_UBIPART="rootfs"
-		mtdnum="$(find_mtd_index "$CI_UBIPART")"
-	}
-
-	if [ ! "$mtdnum" ]; then
-		echo "cannot find mtd device $CI_UBIPART"
-		umount -a
-		reboot -f
-	fi
-
-	local mtddev="/dev/mtd${mtdnum}"
-	ubidetach -p "${mtddev}" || true
-	sync
-	ubiformat "${mtddev}" -y -f "${ubi_file}"
-	ubiattach -p "${mtddev}"
-	nand_do_upgrade_success
-}
-
-# Write the UBIFS image to UBI volume
-nand_upgrade_ubifs() {
-	local rootfs_length=$( (cat $1 | wc -c) 2> /dev/null)
-
-	nand_upgrade_prepare_ubi "$rootfs_length" "ubifs" "" ""
-
-	local ubidev="$( nand_find_ubi "$CI_UBIPART" )"
-	local root_ubivol="$(nand_find_volume $ubidev $CI_ROOTPART)"
-	ubiupdatevol /dev/$root_ubivol -s $rootfs_length $1
-
-	nand_do_upgrade_success
-}
-
-nand_upgrade_fit() {
-	local fit_file="$1"
-	local fit_length="$(wc -c < "$fit_file")"
-
-	nand_upgrade_prepare_ubi "" "" "$fit_length" "1"
-
-	local fit_ubidev="$(nand_find_ubi "$CI_UBIPART")"
-	local fit_ubivol="$(nand_find_volume $fit_ubidev "$CI_KERNPART")"
-	ubiupdatevol /dev/$fit_ubivol -s $fit_length $fit_file
-
-	nand_do_upgrade_success
-}
-
-nand_upgrade_tar() {
-	local tar_file="$1"
-	local kernel_mtd="$(find_mtd_index $CI_KERNPART)"
-
-	local board_dir=$(tar tf "$tar_file" | grep -m 1 '^sysupgrade-.*/$')
-	board_dir=${board_dir%/}
-
-	kernel_length=$( (tar xf "$tar_file" ${board_dir}/kernel -O | wc -c) 2> /dev/null)
-	local has_rootfs=0
-	local rootfs_length
-	local rootfs_type
-
-	tar tf "$tar_file" ${board_dir}/root 1>/dev/null 2>/dev/null && has_rootfs=1
-	[ "$has_rootfs" = "1" ] && {
-		rootfs_length=$( (tar xf "$tar_file" ${board_dir}/root -O | wc -c) 2> /dev/null)
-		rootfs_type="$(identify_tar "$tar_file" ${board_dir}/root)"
-	}
-
-	local has_kernel=1
-	local has_env=0
-
-	[ "$kernel_length" != 0 -a -n "$kernel_mtd" ] && {
-		tar xf "$tar_file" ${board_dir}/kernel -O | mtd write - $CI_KERNPART
-	}
-	[ "$kernel_length" = 0 -o ! -z "$kernel_mtd" ] && has_kernel=
-	[ "$CI_KERNPART" = "none" ] && has_kernel=
-
-	nand_upgrade_prepare_ubi "$rootfs_length" "$rootfs_type" "${has_kernel:+$kernel_length}" "$has_env"
-
-	local ubidev="$( nand_find_ubi "$CI_UBIPART" )"
-	[ "$has_kernel" = "1" ] && {
-		local kern_ubivol="$( nand_find_volume $ubidev $CI_KERNPART )"
-		tar xf "$tar_file" ${board_dir}/kernel -O | \
-			ubiupdatevol /dev/$kern_ubivol -s $kernel_length -
-	}
-
-	[ "$has_rootfs" = "1" ] && {
-		local root_ubivol="$( nand_find_volume $ubidev $CI_ROOTPART )"
-		tar xf "$tar_file" ${board_dir}/root -O | \
-			ubiupdatevol /dev/$root_ubivol -s $rootfs_length -
-	}
-	nand_do_upgrade_success
-}
-
-# Recognize type of passed file and start the upgrade process
-nand_do_upgrade() {
-	local file_type=$(identify $1)
-
-	[ ! "$(find_mtd_index "$CI_UBIPART")" ] && CI_UBIPART="rootfs"
-
-	case "$file_type" in
-		"fit")		nand_upgrade_fit $1;;
-		"ubi")		nand_upgrade_ubinized $1;;
-		"ubifs")	nand_upgrade_ubifs $1;;
-		*)		nand_upgrade_tar $1;;
-	esac
-}
-
-# Check if passed file is a valid one for NAND sysupgrade. Currently it accepts
-# 3 types of files:
-# 1) UBI - should contain an ubinized image, header is checked for the proper
-#    MAGIC
-# 2) UBIFS - should contain UBIFS partition that will replace "rootfs" volume,
-#    header is checked for the proper MAGIC
-# 3) TAR - archive has to include "sysupgrade-BOARD" directory with a non-empty
-#    "CONTROL" file (at this point its content isn't verified)
+# Check if passed file is a valid one for NAND sysupgrade.
+# Currently it accepts 4 types of files:
+# 1) UBI: a ubinized image containing required UBI volumes.
+# 2) UBIFS: a UBIFS rootfs volume image.
+# 3) FIT: a FIT image containing kernel and rootfs.
+# 4) TAR: an archive that includes directory "sysupgrade-${BOARD_NAME}" containing
+#         a non-empty "CONTROL" file and required partition and/or volume images.
 #
 # You usually want to call this function in platform_check_image.
 #
@@ -344,14 +491,25 @@ nand_do_upgrade() {
 # $(2): file to be checked
 nand_do_platform_check() {
 	local board_name="$1"
-	local tar_file="$2"
-	local control_length=$( (tar xf $tar_file sysupgrade-$board_name/CONTROL -O | wc -c) 2> /dev/null)
-	local file_type="$(identify $2)"
+	local file="$2"
 
-	[ "$control_length" = 0 -a "$file_type" != "ubi" -a "$file_type" != "ubifs" -a "$file_type" != "fit" ] && {
-		echo "Invalid sysupgrade file."
-		return 1
-	}
+	local cmd="$(identify_if_gzip "$file")cat"
+	local file_type="$(identify "$file" "$cmd" "")"
+	local control_length=$( ($cmd < "$file" | tar xOf - "sysupgrade-${board_name//,/_}/CONTROL" | wc -c) 2> /dev/null)
+
+	if [ "$control_length" = 0 ]; then
+		control_length=$( ($cmd < "$file" | tar xOf - "sysupgrade-${board_name//_/,}/CONTROL" | wc -c) 2> /dev/null)
+	fi
+
+	if [ "$control_length" != 0 ]; then
+		nand_verify_tar_file "$file" "$cmd" || return 1
+	else
+		nand_verify_if_gzip_file "$file" "$cmd" || return 1
+		if [ "$file_type" != "fit" -a "$file_type" != "ubi" -a "$file_type" != "ubifs" ]; then
+			echo "invalid sysupgrade file"
+			return 1
+		fi
+	fi
 
 	return 0
 }

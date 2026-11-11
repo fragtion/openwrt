@@ -15,9 +15,7 @@ FIND="${FIND:-$(command -v gfind)}"
 TAR="${TAR:-$(command -v tar)}"
 
 # try to use fixed source epoch
-if [ -n "$PKG_SOURCE_DATE_EPOCH" ]; then
-	TIMESTAMP=$(date --date="@$PKG_SOURCE_DATE_EPOCH")
-elif [ -n "$SOURCE_DATE_EPOCH" ]; then
+if [ -n "$SOURCE_DATE_EPOCH" ]; then
 	TIMESTAMP=$(date --date="@$SOURCE_DATE_EPOCH")
 else
 	TIMESTAMP=$(date)
@@ -45,7 +43,7 @@ pkg_appears_sane() {
 	arch="$(required_field Architecture)"
 
 	if echo "$pkg" | grep '[^a-zA-Z0-9_.+-]'; then
-		echo "*** Error: Package name $name contains illegal characters, (other than [a-z0-9.+-])" >&2
+		echo "*** Error: Package name '$pkg' contains illegal characters, (other than [a-z0-9.+-])" >&2
 		PKG_ERROR=1;
 	fi
 
@@ -58,7 +56,8 @@ pkg_appears_sane() {
 
 		rm "$CONTROL"/conffiles
 		if [ -f "$CONTROL"/conffiles.resolved ]; then
-			mv "$CONTROL"/conffiles.resolved "$CONTROL"/conffiles
+			LC_ALL=C sort -o "$CONTROL"/conffiles "$CONTROL"/conffiles.resolved
+			rm "$CONTROL"/conffiles.resolved
 			chmod 0644 "$CONTROL"/conffiles
 		fi
 	fi
@@ -178,20 +177,20 @@ for file_mode in $file_modes; do
 	chown "$uid:$gid" "$pkg_dir/$path"
 	chmod  "$mode" "$pkg_dir/$path"
 done
-$TAR -X "$tmp_dir"/tarX --format=gnu --sort=name -cpf - --mtime="$TIMESTAMP" . | gzip -n - > "$tmp_dir"/data.tar.gz
+$TAR -X "$tmp_dir"/tarX --format=gnu --numeric-owner --sort=name -cpf - --mtime="$TIMESTAMP" . | gzip -n - > "$tmp_dir"/data.tar.gz
 
-installed_size=$(stat -c "%s" "$tmp_dir"/data.tar.gz)
+installed_size=$(zcat < "$tmp_dir"/data.tar.gz | wc -c)
 sed -i -e "s/^Installed-Size: .*/Installed-Size: $installed_size/" \
 	"$pkg_dir"/$CONTROL/control
 
-( cd "$pkg_dir"/$CONTROL && $TAR --format=gnu --sort=name -cf -  --mtime="$TIMESTAMP" . | gzip -n - > "$tmp_dir"/control.tar.gz )
+( cd "$pkg_dir"/$CONTROL && $TAR --format=gnu --numeric-owner --sort=name -cf -  --mtime="$TIMESTAMP" . | gzip -n - > "$tmp_dir"/control.tar.gz )
 rm "$tmp_dir"/tarX
 
 echo "2.0" > "$tmp_dir"/debian-binary
 
 pkg_file=$dest_dir/${pkg}_${version}_${arch}.ipk
 rm -f "$pkg_file"
-( cd "$tmp_dir" && $TAR --format=gnu --sort=name -cf -  --mtime="$TIMESTAMP" ./debian-binary ./data.tar.gz ./control.tar.gz | gzip -n - > "$pkg_file" )
+( cd "$tmp_dir" && $TAR --format=gnu --numeric-owner --sort=name -cf -  --mtime="$TIMESTAMP" ./debian-binary ./data.tar.gz ./control.tar.gz | gzip -n - > "$pkg_file" )
 
 rm "$tmp_dir"/debian-binary "$tmp_dir"/data.tar.gz "$tmp_dir"/control.tar.gz
 rmdir "$tmp_dir"

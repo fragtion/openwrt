@@ -2,22 +2,22 @@
 #
 # Copyright (C) 2019 OpenWrt.org
 
-define KernelPackage/pwm-bcm2835
+define KernelPackage/pwm-raspberrypi-poe
   SUBMENU:=$(OTHER_MENU)
-  TITLE:=BCM2835 PWM driver
+  TITLE:=Raspberry Pi Firwmware PoE Hat PWM support
   KCONFIG:= \
     CONFIG_PWM=y \
-    CONFIG_PWM_BCM2835
-  FILES:=$(LINUX_DIR)/drivers/pwm/pwm-bcm2835.ko
-  AUTOLOAD:=$(call AutoLoad,60,pwm-bcm2835)
-  DEPENDS:=@TARGET_bcm27xx
+    CONFIG_PWM_RASPBERRYPI_POE
+  FILES:=$(LINUX_DIR)/drivers/pwm/pwm-raspberrypi-poe.ko
+  AUTOLOAD:=$(call AutoLoad,20,pwm-raspberrypi-poe)
+  DEPENDS:=@TARGET_bcm27xx +kmod-hwmon-pwmfan
 endef
 
-define KernelPackage/pwm-bcm2835/description
-  This package contains the PWM framework driver for BCM2835 controller (Raspberry Pi)
+define KernelPackage/pwm-raspberrypi-poe/description
+  This package provides Raspberry Pi Firwmware PoE Hat PWM support
 endef
 
-$(eval $(call KernelPackage,pwm-bcm2835))
+$(eval $(call KernelPackage,pwm-raspberrypi-poe))
 
 
 define KernelPackage/smi-bcm2835
@@ -53,3 +53,110 @@ define KernelPackage/smi-bcm2835-dev/description
 endef
 
 $(eval $(call KernelPackage,smi-bcm2835-dev))
+
+
+define KernelPackage/clk-hog
+  SUBMENU:=$(OTHER_MENU)
+  TITLE:=GPCLK clock output support (clk-hog)
+  KCONFIG:=CONFIG_CLK_HOG
+  FILES:=$(LINUX_DIR)/drivers/clk/clk-hog.ko
+  AUTOLOAD:=$(call AutoLoad,20,clk-hog)
+  DEPENDS:=@TARGET_bcm27xx
+endef
+
+define KernelPackage/clk-hog/description
+  Keeps a clock enabled for as long as its device tree node is
+  bound, even with no other driver using it. Needed to actually
+  output a signal with the gpclk or gpclk-pi5 overlay (GPCLK on a
+  GPIO pin); without this module the overlay loads but the clock
+  output stays off.
+endef
+
+$(eval $(call KernelPackage,clk-hog))
+
+
+define KernelPackage/rp1-pio
+  SUBMENU:=$(OTHER_MENU)
+  TITLE:=RP1 PIO block support
+  KCONFIG:=CONFIG_RP1_PIO
+  FILES:=$(LINUX_DIR)/drivers/misc/rp1-pio.ko
+  AUTOLOAD:=$(call AutoLoad,21,rp1-pio)
+  DEPENDS:=@TARGET_bcm27xx_bcm2712
+endef
+
+define KernelPackage/rp1-pio/description
+  Driver providing control of the Raspberry Pi PIO block, as found in RP1
+endef
+
+$(eval $(call KernelPackage,rp1-pio))
+
+
+define KernelPackage/pwm-pio-rp1
+  SUBMENU:=$(OTHER_MENU)
+  TITLE:=RP1 PWM support
+  KCONFIG:=CONFIG_PWM_PIO_RP1
+  FILES:=$(LINUX_DIR)/drivers/pwm/pwm-pio-rp1.ko
+  AUTOLOAD:=$(call AutoLoad,21,pwm-pio-rp1)
+  DEPENDS:=@TARGET_bcm27xx_bcm2712 +kmod-rp1-pio
+endef
+
+define KernelPackage/pwm-pio-rp1/description
+  Enables precise control of PWM signals for tasks like motor control,
+  LED dimming, and audio signal generation. Leveraging PIO allows for
+  higher accuracy and flexibility in PWM signal generation compared
+  to traditional hardware timers.
+endef
+
+$(eval $(call KernelPackage,pwm-pio-rp1))
+
+
+define KernelPackage/ws2812-pio-rp1
+  SUBMENU:=$(OTHER_MENU)
+  TITLE:=RP1 PIO-base WS2812 driver
+  KCONFIG:=CONFIG_WS2812_PIO_RP1
+  FILES:=$(LINUX_DIR)/drivers/misc/ws2812-pio-rp1.ko
+  AUTOLOAD:=$(call AutoLoad,21,ws2812-pio-rp1)
+  DEPENDS:=@TARGET_bcm27xx_bcm2712 +kmod-rp1-pio
+endef
+
+define KernelPackage/ws2812-pio-rp1/description
+  Driver for the WS2812 (NeoPixel) LEDs using the RP1 PIO hardware.
+  The driver creates a character device to which rgbw pixels may be
+  written. Single-byte writes to offset 0 set the brightness at runtime.
+endef
+
+$(eval $(call KernelPackage,ws2812-pio-rp1))
+
+
+define KernelPackage/rp1-pio-uart
+  SUBMENU:=$(OTHER_MENU)
+  TITLE:=RP1 PIO-based UART support
+  KCONFIG:=CONFIG_SERIAL_RP1_PIO_UART
+  FILES:=$(LINUX_DIR)/drivers/tty/serial/rp1-pio-uart.ko
+  AUTOLOAD:=$(call AutoLoad,21,rp1-pio-uart)
+  DEPENDS:=@TARGET_bcm27xx_bcm2712 +kmod-rp1-pio
+endef
+
+define KernelPackage/rp1-pio-uart/description
+  A software UART implemented using the RP1 PIO block, with DMA
+  moving data and a PIO interrupt used for break detection. Only
+  8N1 with no hardware flow control is supported.
+endef
+
+$(eval $(call KernelPackage,rp1-pio-uart))
+
+
+define KernelPackage/bcm27xx-hid
+  SUBMENU:=$(INPUT_MODULES_MENU)
+  TITLE:=USB HID support for bcm27xx boards
+  DEPENDS:=@TARGET_bcm27xx \
+	+kmod-usb-hid
+endef
+
+define KernelPackage/bcm27xx-hid/description
+ Pulls in USB Human Input Device (keyboard, mouse) support. Not
+ installed by default -- headless/router deployments don't need
+ it; install this if you want to attach a USB keyboard or mouse.
+endef
+
+$(eval $(call KernelPackage,bcm27xx-hid))

@@ -7,13 +7,14 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=mtools
-PKG_VERSION:=4.0.35
+PKG_VERSION:=4.0.49
 
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.bz2
 PKG_SOURCE_URL:=@GNU/$(PKG_NAME)
-PKG_HASH:=34769e173751d2f0d891a08c76c80427e929b8ee43438019b8666cc3d7a44749
+PKG_HASH:=6fe5193583d6e7c59da75e63d7234f76c0b07caf33b103894f46f66a871ffc9f
 
 HOST_BUILD_PARALLEL:=1
+HOST_CONFIGURE_CACHE:=1
 
 include $(INCLUDE_DIR)/host-build.mk
 
@@ -23,7 +24,7 @@ HOST_CONFIGURE_VARS += \
 	ac_cv_header_iconv_h=no
 
 define Host/Compile
-	$(MAKE) -C $(HOST_BUILD_DIR) mcopy mmd
+	+$(MAKE) $(HOST_JOBS) -C $(HOST_BUILD_DIR) mcopy mmd
 endef
 
 define Host/Install

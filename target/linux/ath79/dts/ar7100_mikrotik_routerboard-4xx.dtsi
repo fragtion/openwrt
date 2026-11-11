@@ -49,12 +49,9 @@
 };
 
 &gpio {
-	ngpios = <31>;
 	gpio-line-names =
 		"",     "", "", "", "LED", "RDY",  "",  "MDC",
-		"MDIO", "", "", "", "",    "",     "",  "",
-		"",     "", "", "", "",    "",     "",  "",
-		"",     "", "", "", "",    "",     "",  "";
+		"MDIO", "", "", "";
 };
 
 &pcie0 {
@@ -84,12 +81,10 @@
 			};
 
 			hard_config {
-				label = "hard_config";
 				read-only;
 			};
 
 			bios {
-				label = "bios";
 				size = <0x1000>;
 				read-only;
 			};
@@ -100,7 +95,6 @@
 			};
 
 			soft_config {
-				label = "soft_config";
 			};
 		};
 	};

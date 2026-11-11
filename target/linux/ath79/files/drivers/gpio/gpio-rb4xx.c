@@ -17,7 +17,7 @@
 #include <linux/platform_device.h>
 #include <linux/gpio/driver.h>
 #include <linux/module.h>
-#include <linux/of_device.h>
+#include <linux/version.h>
 
 #include <mfd/rb4xx-cpld.h>
 
@@ -54,6 +54,8 @@ static int rb4xx_gpio_cpld_set(struct rb4xx_gpio *gpio, unsigned int offset,
 		ret = cpld->gpio_set_0_7(cpld, values & 0xff);
 	} else if (offset == 8) {
 		ret = cpld->gpio_set_8(cpld, values >> 8);
+	} else {
+		ret = -EINVAL;
 	}
 
 	if(likely(!ret))
@@ -66,7 +68,7 @@ unlock:
 
 static int rb4xx_gpio_get_direction(struct gpio_chip *chip, unsigned int offset)
 {
-	return 0; /* All 9 GPIOs are out */
+	return GPIO_LINE_DIRECTION_OUT;
 }
 
 static int rb4xx_gpio_direction_input(struct gpio_chip *chip,
@@ -93,11 +95,20 @@ static int rb4xx_gpio_get(struct gpio_chip *chip, unsigned int offset)
 	return ret;
 }
 
-static void rb4xx_gpio_set(struct gpio_chip *chip, unsigned int offset,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,17,0)
+static int rb4xx_gpio_set(struct gpio_chip *chip, unsigned int offset,
+			   int value)
+{
+	return rb4xx_gpio_cpld_set(gpiochip_get_data(chip), offset, value);
+}
+#else
+static void
+rb4xx_gpio_set(struct gpio_chip *chip, unsigned int offset,
 			   int value)
 {
 	rb4xx_gpio_cpld_set(gpiochip_get_data(chip), offset, value);
 }
+#endif
 
 static int rb4xx_gpio_probe(struct platform_device *pdev)
 {
@@ -105,6 +116,7 @@ static int rb4xx_gpio_probe(struct platform_device *pdev)
 	struct device *parent = dev->parent;
 	struct rb4xx_gpio *gpio;
 	u32 val;
+	int err;
 
 	if (!parent)
 		return -ENODEV;
@@ -117,7 +129,10 @@ static int rb4xx_gpio_probe(struct platform_device *pdev)
 	gpio->cpld	= dev_get_drvdata(parent);
 	gpio->dev	= dev;
 	gpio->values	= 0;
-	mutex_init(&gpio->lock);
+
+	err = devm_mutex_init(dev, &gpio->lock);
+	if (err)
+		return err;
 
 	gpio->chip.label		= "rb4xx-gpio";
 	gpio->chip.parent		= dev;
@@ -131,32 +146,14 @@ static int rb4xx_gpio_probe(struct platform_device *pdev)
 	gpio->chip.base			= -1;
 	gpio->chip.can_sleep		= 1;
 
-	if (!of_property_read_u32(dev->of_node, "base", &val))
+	if (!device_property_read_u32(dev, "base", &val))
 		gpio->chip.base = val;
 
-	return gpiochip_add_data(&gpio->chip, gpio);
+	return devm_gpiochip_add_data(dev, &gpio->chip, gpio);
 }
-
-static int rb4xx_gpio_remove(struct platform_device *pdev)
-{
-	struct rb4xx_gpio *gpio = platform_get_drvdata(pdev);
-
-	gpiochip_remove(&gpio->chip);
-	mutex_destroy(&gpio->lock);
-
-	return 0;
-}
-
-static const struct platform_device_id rb4xx_gpio_id_table[] = {
-	{ "mikrotik,rb4xx-gpio", },
-	{ },
-};
-MODULE_DEVICE_TABLE(platform, rb4xx_gpio_id_table);
 
 static struct platform_driver rb4xx_gpio_driver = {
 	.probe = rb4xx_gpio_probe,
-	.remove = rb4xx_gpio_remove,
-	.id_table = rb4xx_gpio_id_table,
 	.driver = {
 		.name = "rb4xx-gpio",
 	},

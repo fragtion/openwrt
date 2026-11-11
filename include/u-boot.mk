@@ -1,14 +1,22 @@
+include $(INCLUDE_DIR)/prereq.mk
+
 PKG_NAME ?= u-boot
 
 ifndef PKG_SOURCE_PROTO
 PKG_SOURCE = $(PKG_NAME)-$(PKG_VERSION).tar.bz2
 PKG_SOURCE_URL = \
+	https://git.u-boot-project.org/u-boot/u-boot/-/releases/v$(PKG_VERSION)/downloads \
 	https://mirror.cyberbits.eu/u-boot \
 	https://ftp.denx.de/pub/u-boot \
 	ftp://ftp.denx.de/pub/u-boot
 endif
 
 PKG_BUILD_DIR = $(BUILD_DIR)/$(PKG_NAME)-$(BUILD_VARIANT)/$(PKG_NAME)-$(PKG_VERSION)
+ifndef PKG_SOURCE_PROTO
+ifeq ($(firstword $(sort $(PKG_VERSION) 2026.10)),2026.10)
+  PKG_BUILD_DIR = $(BUILD_DIR)/$(PKG_NAME)-$(BUILD_VARIANT)/$(PKG_NAME)-v$(PKG_VERSION)
+endif
+endif
 
 PKG_TARGETS := bin
 PKG_FLAGS:=nonshared
@@ -16,7 +24,34 @@ PKG_FLAGS:=nonshared
 PKG_LICENSE:=GPL-2.0 GPL-2.0+
 PKG_LICENSE_FILES:=Licenses/README
 
-PKG_BUILD_PARALLEL:=1
+PKG_BUILD_PARALLEL ?= 1
+
+ifdef UBOOT_USE_BINMAN
+  $(eval $(call TestHostCommand,python3-pyelftools, \
+    Please install the Python3 elftools module, \
+    $(STAGING_DIR_HOST)/bin/python3 -c 'import elftools'))
+endif
+
+ifdef UBOOT_USE_INTREE_DTC
+  $(eval $(call TestHostCommand,python3-dev, \
+    Please install the python3-dev package, \
+    python3.14-config --includes 2>&1 | grep 'python3', \
+    python3.13-config --includes 2>&1 | grep 'python3', \
+    python3.12-config --includes 2>&1 | grep 'python3', \
+    python3.11-config --includes 2>&1 | grep 'python3', \
+    python3.10-config --includes 2>&1 | grep 'python3', \
+    python3.9-config --includes 2>&1 | grep 'python3', \
+    python3.8-config --includes 2>&1 | grep 'python3', \
+    python3-config --includes 2>&1 | grep -E 'python3\.([8-9]|[0-9][0-9])\.?'))
+
+  $(eval $(call TestHostCommand,python3-setuptools, \
+    Please install the Python3 setuptools module, \
+    $(STAGING_DIR_HOST)/bin/python3 -c 'import setuptools'))
+
+  $(eval $(call TestHostCommand,swig, \
+    Please install the swig package, \
+    swig -version))
+endif
 
 export GCC_HONOUR_COPTS=s
 
@@ -42,13 +77,16 @@ endef
 TARGET_DEP = TARGET_$(BUILD_TARGET)$(if $(BUILD_SUBTARGET),_$(BUILD_SUBTARGET))
 
 UBOOT_MAKE_FLAGS = \
+	PATH=$(STAGING_DIR_HOST)/bin:$(PATH) \
 	HOSTCC="$(HOSTCC)" \
 	HOSTCFLAGS="$(HOST_CFLAGS) $(HOST_CPPFLAGS) -std=gnu11" \
 	HOSTLDFLAGS="$(HOST_LDFLAGS)" \
+	LOCALVERSION="-OpenWrt-$(REVISION)" \
 	STAGING_PREFIX="$(STAGING_DIR_HOST)" \
 	PKG_CONFIG_PATH="$(STAGING_DIR_HOST)/lib/pkgconfig" \
 	PKG_CONFIG_LIBDIR="$(STAGING_DIR_HOST)/lib/pkgconfig" \
 	PKG_CONFIG_EXTRAARGS="--static" \
+	$(if $(KBUILD_CFLAGS),KCFLAGS="$(KBUILD_CFLAGS)") \
 	$(if $(findstring c,$(OPENWRT_VERBOSE)),V=1,V='')
 
 define Build/U-Boot/Target
@@ -72,7 +110,7 @@ define Build/U-Boot/Target
       endif
     endif
     $(if $(DEFAULT),DEFAULT:=$(DEFAULT))
-    URL:=http://www.denx.de/wiki/U-Boot
+    URL:=https://docs.u-boot-project.org/en/latest/
   endef
 
   define Package/u-boot-$(1)/install
@@ -81,10 +119,19 @@ define Build/U-Boot/Target
 endef
 
 define Build/Configure/U-Boot
-	+$(MAKE) $(PKG_JOBS) -C $(PKG_BUILD_DIR) $(UBOOT_CONFIGURE_VARS) $(UBOOT_CONFIG)_config
+	+$(MAKE) $(PKG_JOBS) -C $(PKG_BUILD_DIR) \
+		CROSS_COMPILE=$(TARGET_CROSS) \
+		$(UBOOT_CONFIGURE_VARS) \
+		$(firstword $(UBOOT_CONFIG))_config \
+		$(wordlist 2,$(words $(UBOOT_CONFIG)),$(UBOOT_CONFIG:%=%.config))
+	$(if $(strip $(UBOOT_CUSTOMIZE_CONFIG)),
+		$(PKG_BUILD_DIR)/scripts/config --file $(PKG_BUILD_DIR)/.config $(UBOOT_CUSTOMIZE_CONFIG)
+		+$(MAKE) $(PKG_JOBS) -C $(PKG_BUILD_DIR) CROSS_COMPILE=$(TARGET_CROSS) $(UBOOT_CONFIGURE_VARS) oldconfig)
 endef
 
-DTC=$(wildcard $(LINUX_DIR)/scripts/dtc/dtc)
+ifndef UBOOT_USE_INTREE_DTC
+  DTC=$(wildcard $(LINUX_DIR)/scripts/dtc/dtc)
+endif
 
 define Build/Compile/U-Boot
 	+$(MAKE) $(PKG_JOBS) -C $(PKG_BUILD_DIR) \

@@ -70,6 +70,7 @@ add_interface() {
 	add_option boolean nat
 	add_option boolean host_isolate
 	add_option boolean autorate_ingress
+	add_option boolean multiqueue
 	add_option string ingress_options
 	add_option string egress_options
 
@@ -165,7 +166,7 @@ start_service() {
 	procd_close_instance
 }
 
-service_started() {
+service_running() {
 	ubus -t 10 wait_for qosify
 	[ $? = 0 ] && reload_service
 }

@@ -5,12 +5,14 @@
 
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
+#include <dt-bindings/leds/common.h>
 
 / {
 	model = "Engenius ENS202EXT v1";
 	compatible = "engenius,ens202ext-v1", "qca,ar9341";
 
 	aliases {
+		label-mac-device = &wmac;
 		led-boot = &led_power;
 		led-failsafe = &led_power;
 		led-running = &led_power;
@@ -32,15 +34,10 @@
 		compatible = "gpio-leds";
 
 		led_power: power {
-			label = "amber:power";
+			function = LED_FUNCTION_POWER;
+			color = <LED_COLOR_ID_AMBER>;
 			gpios = <&gpio 14 GPIO_ACTIVE_LOW>;
 			default-state = "on";
-		};
-
-		wlan {
-			label = "amber:wlan";
-			gpios = <&gpio 18 GPIO_ACTIVE_LOW>;
-			linux,default-trigger = "phy0tpt";
 		};
 
 		rssilow {
@@ -84,15 +81,31 @@
 &wmac {
 	status = "okay";
 
-	mtd-cal-data = <&art 0x1000>;
+	nvmem-cells = <&cal_art_1000>, <&macaddr_art_1002>;
+	nvmem-cell-names = "calibration", "mac-address";
+
+	led {
+		led-sources = <18>;
+		led-active-low;
+	};
 };
 
 &art {
-	compatible = "nvmem-cells";
-	#address-cells = <1>;
-	#size-cells = <1>;
+	nvmem-layout {
+		compatible = "fixed-layout";
+		#address-cells = <1>;
+		#size-cells = <1>;
 
-	macaddr_art_0: macaddr@0 {
-		reg = <0x0 0x6>;
+		macaddr_art_0: macaddr@0 {
+			reg = <0x0 0x6>;
+		};
+
+		cal_art_1000: calibration@1000 {
+			reg = <0x1000 0x440>;
+		};
+
+		macaddr_art_1002: macaddr@1002 {
+			reg = <0x1002 0x6>;
+		};
 	};
 };

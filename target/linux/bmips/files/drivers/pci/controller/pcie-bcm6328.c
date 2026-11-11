@@ -13,16 +13,18 @@
 #include <linux/kernel.h>
 #include <linux/mfd/syscon.h>
 #include <linux/mm.h>
-#include <linux/of_gpio.h>
+#include <linux/module.h>
 #include <linux/of_irq.h>
 #include <linux/of_pci.h>
 #include <linux/of_platform.h>
 #include <linux/pci.h>
+#include <linux/platform_device.h>
 #include <linux/pm_domain.h>
 #include <linux/pm_runtime.h>
 #include <linux/reset.h>
 #include <linux/regmap.h>
 #include <linux/types.h>
+#include <linux/version.h>
 #include <linux/vmalloc.h>
 
 #include "../pci.h"
@@ -151,7 +153,7 @@ static int bcm6328_pcie_can_access(struct pci_bus *bus, int devfn)
 		if (PCI_SLOT(devfn) == 0)
 			return __raw_readl(priv->base + PCIE_DLSTATUS_REG)
 			       & DLSTATUS_PHYLINKUP;
-		/* else, fall through */
+		fallthrough;
 	default:
 		return false;
 	}
@@ -209,7 +211,6 @@ static struct pci_controller bcm6328_pcie_controller = {
 	.pci_ops = &bcm6328_pcie_ops,
 	.io_resource = &bcm6328_pcie_io_resource,
 	.mem_resource = &bcm6328_pcie_mem_resource,
-	.busn_resource = &bcm6328_pcie_busn_resource,
 };
 
 static void bcm6328_pcie_reset(struct bcm6328_pcie *priv)
@@ -286,6 +287,27 @@ static void bcm6328_pcie_setup(struct bcm6328_pcie *priv)
 	__raw_writel(val, priv->base + PCIE_BRIDGE_BAR0_REBASE_ADDR_REG);
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,14,0)
+/* Kernel 6.14 no longer has this exported in drivers/pci/of.c. Hack it back in. */
+static int bcm6328_of_pci_parse_bus_range(struct device_node *node, struct resource *res)
+{
+	u32 bus_range[2];
+	int error;
+
+	error = of_property_read_u32_array(node, "bus-range", bus_range,
+					   ARRAY_SIZE(bus_range));
+	if (error)
+		return error;
+
+	res->name = node->name;
+	res->start = bus_range[0];
+	res->end = bus_range[1];
+	res->flags = IORESOURCE_BUS;
+
+	return 0;
+}
+#endif
+
 static int bcm6328_pcie_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -294,6 +316,7 @@ static int bcm6328_pcie_probe(struct platform_device *pdev)
 	struct resource *res;
 	unsigned int i;
 	int ret;
+	LIST_HEAD(resources);
 
 	pm_runtime_enable(dev);
 	pm_runtime_no_callbacks(dev);
@@ -379,7 +402,12 @@ static int bcm6328_pcie_probe(struct platform_device *pdev)
 	if (!bcm6328_pcie_mem_resource.start)
 		return -EINVAL;
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,14,0)
 	of_pci_parse_bus_range(np, &bcm6328_pcie_busn_resource);
+#else
+	bcm6328_of_pci_parse_bus_range(np, &bcm6328_pcie_busn_resource);
+#endif
+	pci_add_resource(&resources, &bcm6328_pcie_busn_resource);
 
 	bcm6328_pcie_reset(priv);
 	bcm6328_pcie_setup(priv);
@@ -393,6 +421,7 @@ static const struct of_device_id bcm6328_pcie_of_match[] = {
 	{ .compatible = "brcm,bcm6328-pcie", },
 	{ /* sentinel */ }
 };
+MODULE_DEVICE_TABLE(of, bcm6328_pcie_of_match);
 
 static struct platform_driver bcm6328_pcie_driver = {
 	.probe = bcm6328_pcie_probe,
@@ -401,12 +430,9 @@ static struct platform_driver bcm6328_pcie_driver = {
 		.of_match_table = bcm6328_pcie_of_match,
 	},
 };
+module_platform_driver(bcm6328_pcie_driver);
 
-int __init bcm6328_pcie_init(void)
-{
-	int ret = platform_driver_register(&bcm6328_pcie_driver);
-	if (ret)
-		pr_err("pci-bcm6328: Error registering platform driver!\n");
-	return ret;
-}
-late_initcall_sync(bcm6328_pcie_init);
+MODULE_AUTHOR("Álvaro Fernández Rojas <noltari@gmail.com>");
+MODULE_DESCRIPTION("BCM6328 PCIe Controller Driver");
+MODULE_LICENSE("GPL v2");
+MODULE_ALIAS("platform:bcm6328-pcie");

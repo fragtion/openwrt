@@ -6,9 +6,11 @@
  */
 
 #include "cn9130.dtsi"
+#include "puzzle-thermal.dtsi"
 
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
+#include <dt-bindings/leds/common.h>
 
 / {
 	model = "iEi Puzzle-M901";
@@ -38,7 +40,7 @@
 		led-upgrade = &led_info;
 	};
 
-	memory@00000000 {
+	memory@0 {
 		device_type = "memory";
 		reg = <0x0 0x0 0x0 0x80000000>;
 	};
@@ -50,6 +52,48 @@
 			label = "Reset";
 			linux,code = <KEY_RESTART>;
 			gpios = <&cp0_gpio2 4 GPIO_ACTIVE_LOW>;
+		};
+	};
+
+	thermal-zones {
+		chassis0-thermal {
+			thermal-sensors = <&puzzle_hwmon 0>;
+			PUZZLE_FAN_CHASSIS_THERMAL(chassis0, &chassis_fan_group0);
+		};
+
+		chassis1-thermal {
+			thermal-sensors = <&puzzle_hwmon 1>;
+			PUZZLE_FAN_CHASSIS_THERMAL(chassis1, &chassis_fan_group0);
+		};
+
+		cp0-phy0-thermal {
+			thermal-sensors = <&cp0_nbaset_phy0>;
+			PUZZLE_FAN_THERMAL(cp0_phy0, &chassis_fan_group0);
+		};
+
+		cp0-phy1-thermal {
+			thermal-sensors = <&cp0_nbaset_phy1>;
+			PUZZLE_FAN_THERMAL(cp0_phy1, &chassis_fan_group0);
+		};
+
+		cp0-phy2-thermal {
+			thermal-sensors = <&cp0_nbaset_phy2>;
+			PUZZLE_FAN_THERMAL(cp0_phy2, &chassis_fan_group0);
+		};
+
+		cp1-phy0-thermal {
+			thermal-sensors = <&cp1_nbaset_phy0>;
+			PUZZLE_FAN_THERMAL(cp1_phy0, &chassis_fan_group0);
+		};
+
+		cp1-phy1-thermal {
+			thermal-sensors = <&cp1_nbaset_phy1>;
+			PUZZLE_FAN_THERMAL(cp1_phy1, &chassis_fan_group0);
+		};
+
+		cp1-phy2-thermal {
+			thermal-sensors = <&cp1_nbaset_phy2>;
+			PUZZLE_FAN_THERMAL(cp1_phy2, &chassis_fan_group0);
 		};
 	};
 };
@@ -95,38 +139,24 @@
 
 			led_power: led@3 {
 				reg = <3>;
-				label = "yellow:power";
+				function = LED_FUNCTION_POWER;
+				color = <LED_COLOR_ID_YELLOW>;
 				active-low;
 				default-state = "on";
 			};
 		};
 
-		hwmon {
+		puzzle_hwmon: hwmon {
 			compatible = "iei,wt61p803-puzzle-hwmon";
 			#address-cells = <1>;
 			#size-cells = <0>;
+			#thermal-sensor-cells = <1>;
 
 			chassis_fan_group0: fan-group@0 {
 				#cooling-cells = <2>;
 				reg = <0x00>;
-				cooling-levels = <64 102 170 230 250>;
+				cooling-levels = <0 159 195 211 223 241 255>;
 			};
-		};
-	};
-};
-
-&ap_thermal_cpu1 {
-	trips {
-		cpu_active: cpu-active {
-			temperature = <44000>;
-			hysteresis = <2000>;
-			type = "active";
-		};
-	};
-	cooling-maps {
-		fan-map {
-			trip = <&cpu_active>;
-			cooling-device = <&chassis_fan_group0 64 THERMAL_NO_LIMIT>;
 		};
 	};
 };
@@ -149,14 +179,17 @@
 	cp0_nbaset_phy0: ethernet-phy@0 {
 		compatible = "ethernet-phy-ieee802.3-c45";
 		reg = <2>;
+		#thermal-sensor-cells = <0>;
 	};
 	cp0_nbaset_phy1: ethernet-phy@1 {
 		compatible = "ethernet-phy-ieee802.3-c45";
 		reg = <0>;
+		#thermal-sensor-cells = <0>;
 	};
 	cp0_nbaset_phy2: ethernet-phy@2 {
 		compatible = "ethernet-phy-ieee802.3-c45";
 		reg = <8>;
+		#thermal-sensor-cells = <0>;
 	};
 };
 
@@ -222,8 +255,6 @@
 	      <0x2000000 0x1000000>;    /* CS0 */
 	status = "okay";
 	spi-flash@0 {
-		#address-cells = <0x1>;
-		#size-cells = <0x1>;
 		compatible = "jedec,spi-nor";
 		reg = <0x0>;
 		spi-max-frequency = <40000000>;
@@ -249,6 +280,10 @@
 			};
 		};
 	};
+};
+
+&cp0_rtc {
+	status = "disabled";
 };
 
 &cp0_syscon0 {
@@ -314,14 +349,17 @@
 	cp1_nbaset_phy0: ethernet-phy@3 {
 		compatible = "ethernet-phy-ieee802.3-c45";
 		reg = <2>;
+		#thermal-sensor-cells = <0>;
 	};
 	cp1_nbaset_phy1: ethernet-phy@4 {
 		compatible = "ethernet-phy-ieee802.3-c45";
 		reg = <0>;
+		#thermal-sensor-cells = <0>;
 	};
 	cp1_nbaset_phy2: ethernet-phy@5 {
 		compatible = "ethernet-phy-ieee802.3-c45";
 		reg = <8>;
+		#thermal-sensor-cells = <0>;
 	};
 };
 
@@ -372,6 +410,10 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&cp1_i2c0_pins>;
 	clock-frequency = <100000>;
+};
+
+&cp1_rtc {
+	status = "disabled";
 };
 
 &cp1_syscon0 {

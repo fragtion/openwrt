@@ -9,6 +9,7 @@ define SOURCE_INFO
 $(if $(PKG_BUILD_DEPENDS),Build-Depends: $(PKG_BUILD_DEPENDS)
 )$(if $(HOST_BUILD_DEPENDS),Build-Depends/host: $(HOST_BUILD_DEPENDS)
 )$(if $(BUILD_TYPES),Build-Types: $(BUILD_TYPES)
+)$(if $(PKG_PARALLEL_VARIANTS),Parallel-Variants: 1
 )
 
 endef
@@ -36,13 +37,14 @@ $(if $(USERID),Require-User: $(USERID)
 )Source: $(PKG_SOURCE)
 $(if $(LICENSE),License: $(LICENSE)
 )$(if $(LICENSE_FILES),LicenseFiles: $(LICENSE_FILES)
+)$(if $(PKG_CPE_ID),CPE-ID: $(PKG_CPE_ID)
+)$(if $(URL),URL: $(URL)
+)$(if $(ABI_VERSION),ABI-Version: $(ABI_VERSION)
 )Type: $(if $(Package/$(1)/targets),$(Package/$(1)/targets),$(if $(PKG_TARGETS),$(PKG_TARGETS),ipkg))
 $(if $(KCONFIG),Kernel-Config: $(KCONFIG)
 )$(if $(BUILDONLY),Build-Only: $(BUILDONLY)
 )$(if $(HIDDEN),Hidden: $(HIDDEN)
 )Description: $(if $(Package/$(1)/description),$(Package/$(1)/description),$(TITLE))
-$(if $(URL),$(URL)
-)$(MAINTAINER)
 @@
 $(if $(Package/$(1)/config),Config:
 $(Package/$(1)/config)

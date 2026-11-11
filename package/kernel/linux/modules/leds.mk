@@ -24,6 +24,23 @@ $(eval $(call KernelPackage,leds-gpio))
 
 LED_TRIGGER_DIR=$(LINUX_DIR)/drivers/leds/trigger
 
+define KernelPackage/leds-group-multicolor
+  SUBMENU:=$(LEDS_MENU)
+  TITLE:=LEDs group multicolor support
+  KCONFIG:=CONFIG_LEDS_GROUP_MULTICOLOR
+  FILES:=$(LINUX_DIR)/drivers/leds/rgb/leds-group-multicolor.ko
+  AUTOLOAD:=$(call AutoProbe,leds-group-multicolor)
+endef
+
+define KernelPackage/leds-group-multicolor/description
+ This option enables support for monochrome LEDs that are grouped
+ into multicolor LEDs which is useful in the case where LEDs of
+ different colors are physically grouped in a single multi-color LED
+ and driven by a controller that does not have multi-color support.
+endef
+
+$(eval $(call KernelPackage,leds-group-multicolor))
+
 define KernelPackage/ledtrig-activity
   SUBMENU:=$(LEDS_MENU)
   TITLE:=LED Activity Trigger
@@ -38,21 +55,6 @@ endef
 
 $(eval $(call KernelPackage,ledtrig-activity))
 
-define KernelPackage/ledtrig-audio
-  SUBMENU:=$(LEDS_MENU)
-  TITLE:=LED Audio Mute Trigger
-  KCONFIG:=CONFIG_LEDS_TRIGGER_AUDIO
-  FILES:=$(LED_TRIGGER_DIR)/ledtrig-audio.ko
-  AUTOLOAD:=$(call AutoLoad,50,ledtrig-audio)
-endef
-
-define KernelPackage/ledtrig-audio/description
- Kernel module that allows LEDs to be controlled by audio drivers
- to follow audio mute and mic-mute changes.
-endef
-
-$(eval $(call KernelPackage,ledtrig-audio))
-
 define KernelPackage/ledtrig-gpio
   SUBMENU:=$(LEDS_MENU)
   TITLE:=LED GPIO Trigger
@@ -66,6 +68,22 @@ define KernelPackage/ledtrig-gpio/description
 endef
 
 $(eval $(call KernelPackage,ledtrig-gpio))
+
+
+define KernelPackage/ledtrig-network
+  SUBMENU:=$(LEDS_MENU)
+  TITLE:=LED Network Trigger
+  KCONFIG:=CONFIG_LEDS_TRIGGER_NETWORK
+  FILES:=$(LED_TRIGGER_DIR)/ledtrig-network.ko
+  AUTOLOAD:=$(call AutoLoad,50,ledtrig-network)
+endef
+
+define KernelPackage/ledtrig-network/description
+ Kernel module that allows LEDs to be controlled by network interfaces
+ aggregated by family (lan/wan/wlan), with an optional per-LED '-online' mode.
+endef
+
+$(eval $(call KernelPackage,ledtrig-network))
 
 
 define KernelPackage/ledtrig-transient
@@ -115,6 +133,22 @@ endef
 $(eval $(call KernelPackage,ledtrig-pattern))
 
 
+define KernelPackage/ledtrig-tty
+  SUBMENU:=$(LEDS_MENU)
+  TITLE:=LED Trigger for TTY devices
+  KCONFIG:=CONFIG_LEDS_TRIGGER_TTY
+  FILES:=$(LED_TRIGGER_DIR)/ledtrig-tty.ko
+  AUTOLOAD:=$(call AutoLoad,50,ledtrig-tty)
+endef
+
+define KernelPackage/ledtrig-tty/description
+  This allows LEDs to be controlled by activity on ttys which includes
+  serial devices like '/dev/ttyS0'.
+endef
+
+$(eval $(call KernelPackage,ledtrig-tty))
+
+
 define KernelPackage/leds-apu
   SUBMENU:=$(LEDS_MENU)
   TITLE:=PC Engines APU1 LED support
@@ -129,6 +163,60 @@ define KernelPackage/leds-apu/description
 endef
 
 $(eval $(call KernelPackage,leds-apu))
+
+
+define KernelPackage/leds-ktd202x
+  SUBMENU:=LED modules
+  TITLE:=LED support for KTD202x Chips
+  DEPENDS:=+kmod-i2c-core +kmod-regmap-i2c
+  KCONFIG:=CONFIG_LEDS_KTD202X
+  FILES:= $(LINUX_DIR)/drivers/leds/rgb/leds-ktd202x.ko
+  AUTOLOAD:=$(call AutoProbe,leds-ktd202x,1)
+endef
+
+define KernelPackage/leds-ktd202x/description
+  This option enables support for the Kinetic KTD2026/KTD2027
+  RGB/White LED driver found in different BQ mobile phones.
+  It is a 3 or 4 channel LED driver programmed via an I2C interface.
+endef
+
+$(eval $(call KernelPackage,leds-ktd202x))
+
+
+define KernelPackage/leds-mlxcpld
+  SUBMENU:=$(LEDS_MENU)
+  TITLE:=LED support for the Mellanox boards
+  DEPENDS:=@TARGET_x86
+  KCONFIG:=CONFIG_LEDS_MLXCPLD
+  FILES:=$(LINUX_DIR)/drivers/leds/leds-mlxcpld.ko
+  AUTOLOAD:=$(call AutoProbe,leds-mlxcpld)
+endef
+
+define KernelPackage/leds-mlxcpld/description
+  This option enables support for the LEDs on the Mellanox
+  boards.
+endef
+
+$(eval $(call KernelPackage,leds-mlxcpld))
+
+
+define KernelPackage/leds-pca955x
+  SUBMENU:=$(LEDS_MENU)
+  TITLE:=LED driver for PCA955x I2C chips
+  DEPENDS:=@GPIO_SUPPORT +kmod-i2c-core
+  KCONFIG:=CONFIG_LEDS_PCA955X \
+    CONFIG_LEDS_PCA955X_GPIO=y
+  FILES:=$(LINUX_DIR)/drivers/leds/leds-pca955x.ko
+  AUTOLOAD:=$(call AutoLoad,60,leds-pca955x,1)
+endef
+
+define KernelPackage/leds-pca955x/description
+ This option enables support for LEDs connected to PCA955x
+ LED driver chips accessed via the I2C bus.  Supported
+ devices include PCA9550, PCA9551, PCA9552, and PCA9553.
+endef
+
+$(eval $(call KernelPackage,leds-pca955x))
 
 
 define KernelPackage/leds-pca963x
@@ -161,6 +249,23 @@ define KernelPackage/leds-pwm/description
 endef
 
 $(eval $(call KernelPackage,leds-pwm))
+
+
+define KernelPackage/leds-st1202
+  SUBMENU:=LED modules
+  TITLE:=LED support for ST LED1202 I2C chips
+  DEPENDS:=+kmod-i2c-core +kmod-ledtrig-pattern
+  KCONFIG:=CONFIG_LEDS_ST1202
+  FILES:= $(LINUX_DIR)/drivers/leds/leds-st1202.ko
+  AUTOLOAD:=$(call AutoProbe,leds-st1202,1)
+endef
+
+define KernelPackage/leds-st1202/description
+  This option enables support for LEDs connected to LED1202
+  LED driver chips accessed via the I2C bus.
+endef
+
+$(eval $(call KernelPackage,leds-st1202))
 
 
 define KernelPackage/leds-tlc591xx
@@ -210,3 +315,88 @@ define KernelPackage/input-leds/description
 endef
 
 $(eval $(call KernelPackage,input-leds))
+
+
+define KernelPackage/leds-lp55xx-common
+  SUBMENU:=$(LEDS_MENU)
+  TITLE:=LED common driver for LP5521/LP5523/LP55231/LP5562 controllers
+  DEPENDS:=+kmod-i2c-core
+  KCONFIG:=CONFIG_LEDS_LP55XX_COMMON
+  FILES:=$(LINUX_DIR)/drivers/leds/leds-lp55xx-common.ko
+  AUTOLOAD:=$(call AutoLoad,60,leds-lp55xx-common,1)
+endef
+
+define KernelPackage/leds-lp55xx-common/description
+ This option enables support for Texas Instruments
+ LP5521/LP5523/LP55231/LP5562 common driver.
+endef
+
+$(eval $(call KernelPackage,leds-lp55xx-common))
+
+
+define KernelPackage/leds-lp5521
+  SUBMENU:=$(LEDS_MENU)
+  TITLE:=LED driver for LP5521 controllers
+  DEPENDS:=+kmod-i2c-core +kmod-leds-lp55xx-common
+  KCONFIG:=CONFIG_LEDS_LP5521
+  FILES:=$(LINUX_DIR)/drivers/leds/leds-lp5521.ko
+  AUTOLOAD:=$(call AutoLoad,60,leds-lp5521,1)
+endef
+
+define KernelPackage/leds-lp5521/description
+ This option enables support for Texas Instruments LP5521
+ LED controllers.
+endef
+
+$(eval $(call KernelPackage,leds-lp5521))
+
+
+define KernelPackage/leds-lp5523
+  SUBMENU:=$(LEDS_MENU)
+  TITLE:=LED driver for LP5523/LP55231 controllers
+  DEPENDS:=+kmod-i2c-core +kmod-leds-lp55xx-common
+  KCONFIG:=CONFIG_LEDS_LP5523
+  FILES:=$(LINUX_DIR)/drivers/leds/leds-lp5523.ko
+  AUTOLOAD:=$(call AutoLoad,60,leds-lp5523,1)
+endef
+
+define KernelPackage/leds-lp5523/description
+ This option enables support for Texas Instruments LP5523/LP55231
+ LED controllers.
+endef
+
+$(eval $(call KernelPackage,leds-lp5523))
+
+
+define KernelPackage/leds-lp5562
+  SUBMENU:=$(LEDS_MENU)
+  TITLE:=LED driver for LP5562 controllers
+  DEPENDS:=+kmod-i2c-core +kmod-leds-lp55xx-common
+  KCONFIG:=CONFIG_LEDS_LP5562
+  FILES:=$(LINUX_DIR)/drivers/leds/leds-lp5562.ko
+  AUTOLOAD:=$(call AutoLoad,60,leds-lp5562,1)
+endef
+
+define KernelPackage/leds-lp5562/description
+ This option enables support for Texas Instruments LP5562
+ LED controllers.
+endef
+
+$(eval $(call KernelPackage,leds-lp5562))
+
+
+define KernelPackage/leds-lp5569
+  SUBMENU:=$(LEDS_MENU)
+  TITLE:=LED driver for LP5569 controllers
+  DEPENDS:=+kmod-i2c-core +kmod-leds-lp55xx-common
+  KCONFIG:=CONFIG_LEDS_LP5569
+  FILES:=$(LINUX_DIR)/drivers/leds/leds-lp5569.ko
+  AUTOLOAD:=$(call AutoProbe,leds-lp5569,1)
+endef
+
+define KernelPackage/leds-lp5569/description
+ This option enables support for Texas Instruments LP5569
+ LED controllers.
+endef
+
+$(eval $(call KernelPackage,leds-lp5569))

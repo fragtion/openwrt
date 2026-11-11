@@ -9,12 +9,13 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=sysfsutils
 PKG_VERSION:=2.1.0
-PKG_RELEASE:=3
+PKG_RELEASE:=4
 
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL:=@SF/linux-diag
 PKG_HASH:=e865de2c1f559fff0d3fc936e660c0efaf7afe662064f2fb97ccad1ec28d208a
 PKG_MAINTAINER:=Jo-Philipp Wich <jo@mein.io>
+PKG_CPE_ID:=cpe:/a:sysfsutils_project:sysfsutils
 
 PKG_LICENSE:=LGPL-2.1
 PKG_LICENSE_FILES:=COPYING cmd/GPL lib/LGPL
@@ -30,7 +31,7 @@ define Package/libsysfs
   CATEGORY:=Libraries
   SUBMENU:=Filesystem
   TITLE:=Sysfs library
-  URL:=http://linux-diag.sourceforge.net/Sysfsutils.html
+  URL:=https://github.com/linux-ras/sysfsutils
   ABI_VERSION:=2
 endef
 
@@ -40,7 +41,7 @@ define Package/sysfsutils
   SUBMENU:=Filesystem
   DEPENDS:=+libsysfs
   TITLE:=System Utilities Based on Sysfs
-  URL:=http://linux-diag.sourceforge.net/Sysfsutils.html
+  URL:=https://github.com/linux-ras/sysfsutils
 endef
 
 define Package/libsysfs/description

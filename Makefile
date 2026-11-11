@@ -14,8 +14,10 @@ $(if $(findstring $(space),$(TOPDIR)),$(error ERROR: The path to the OpenWrt dir
 
 world:
 
-DISTRO_PKG_CONFIG:=$(shell $(TOPDIR)/scripts/command_all.sh pkg-config | grep -E '\/usr' | head -n 1)
-export PATH:=$(TOPDIR)/staging_dir/host/bin:$(PATH)
+DISTRO_PKG_CONFIG:=$(shell $(TOPDIR)/scripts/command_all.sh pkg-config | grep -e '/usr' -e '/nix/store' -m 1)
+
+export ORIG_PATH:=$(if $(ORIG_PATH),$(ORIG_PATH),$(PATH))
+export PATH:=$(if $(STAGING_DIR),$(abspath $(STAGING_DIR)/../host/bin),$(TOPDIR)/staging_dir/host/bin):$(PATH)
 
 ifneq ($(OPENWRT_BUILD),1)
   _SINGLE=export MAKEFLAGS=$(space);
@@ -38,6 +40,9 @@ else
   include tools/Makefile
   include toolchain/Makefile
 
+# Include the test suite Makefile if it exists
+-include tests/Makefile
+
 $(toolchain/stamp-compile): $(tools/stamp-compile) $(if $(CONFIG_BUILDBOT),toolchain_rebuild_check)
 $(target/stamp-compile): $(toolchain/stamp-compile) $(tools/stamp-compile) $(BUILD_DIR)/.prepared
 $(package/stamp-compile): $(target/stamp-compile) $(package/stamp-cleanup)
@@ -51,7 +56,7 @@ printdb:
 prepare: $(target/stamp-compile)
 
 _clean: FORCE
-	rm -rf $(BUILD_DIR) $(STAGING_DIR) $(BIN_DIR) $(OUTPUT_DIR)/packages/$(ARCH_PACKAGES) $(BUILD_LOG_DIR) $(TOPDIR)/staging_dir/packages
+	rm -rf $(BUILD_DIR) $(STAGING_DIR) $(BIN_DIR) $(OUTPUT_DIR)/packages/$(ARCH_PACKAGES) $(TOPDIR)/staging_dir/packages
 
 clean: _clean
 	rm -rf $(BUILD_LOG_DIR)
@@ -100,8 +105,10 @@ prereq: $(target/stamp-prereq) tmp/.prereq_packages
 
 $(BIN_DIR)/profiles.json: FORCE
 	$(if $(CONFIG_JSON_OVERVIEW_IMAGE_INFO), \
+		mkdir -p $(BIN_DIR) $(TMP_DIR); \
 		WORK_DIR=$(BUILD_DIR)/json_info_files \
-			$(SCRIPT_DIR)/json_overview_image_info.py $@ \
+			$(SCRIPT_DIR)/json_overview_image_info.py $(TMP_DIR)/.profiles.json && \
+		$(call cp_if_changed,$(TMP_DIR)/.profiles.json,$@) \
 	)
 
 json_overview_image_info: $(BIN_DIR)/profiles.json
@@ -110,14 +117,29 @@ checksum: FORCE
 	$(call sha256sums,$(BIN_DIR),$(CONFIG_BUILDBOT))
 
 buildversion: FORCE
-	$(SCRIPT_DIR)/getver.sh > $(BIN_DIR)/version.buildinfo
+	mkdir -p $(BIN_DIR) $(TMP_DIR)
+	$(SCRIPT_DIR)/getver.sh > $(TMP_DIR)/.version.buildinfo
+	$(call cp_if_changed,$(TMP_DIR)/.version.buildinfo,$(BIN_DIR)/version.buildinfo)
 
 feedsversion: FORCE
-	$(SCRIPT_DIR)/feeds list -fs > $(BIN_DIR)/feeds.buildinfo
+	mkdir -p $(BIN_DIR) $(TMP_DIR)
+	$(SCRIPT_DIR)/feeds list -fs > $(TMP_DIR)/.feeds.buildinfo
+	$(call cp_if_changed,$(TMP_DIR)/.feeds.buildinfo,$(BIN_DIR)/feeds.buildinfo)
+
+# diffconfig.sh runs the config parser over the whole tree twice, which takes
+# two seconds of every build. Skip it while neither .config nor a Kconfig file
+# is newer than the file it wrote last time. include/toplevel.mk guards the
+# sync check of .config the same way.
+DIFFCONFIG_FILES:=.config Config.in config target toolchain package feeds \
+	tmp/.config-package.in tmp/.config-target.in tmp/.config-feeds.in scripts/config/conf
 
 diffconfig: FORCE
 	mkdir -p $(BIN_DIR)
-	$(SCRIPT_DIR)/diffconfig.sh > $(BIN_DIR)/config.buildinfo
+	@[ -f $(BIN_DIR)/config.buildinfo ] && \
+		[ -z "$$(find $(DIFFCONFIG_FILES) -newer $(BIN_DIR)/config.buildinfo \
+			\( -name .config -o -name conf -o -name '*.in' -o -name 'Config.*' \) \
+			-print -quit 2>/dev/null)" ] || \
+		$(SCRIPT_DIR)/diffconfig.sh > $(BIN_DIR)/config.buildinfo
 
 buildinfo: FORCE
 	$(_SINGLE)$(SUBMAKE) -r diffconfig buildversion feedsversion
@@ -126,9 +148,7 @@ prepare: .config $(tools/stamp-compile) $(toolchain/stamp-compile)
 	$(_SINGLE)$(SUBMAKE) -r buildinfo
 
 world: prepare $(target/stamp-compile) $(package/stamp-compile) $(package/stamp-install) $(target/stamp-install) FORCE
-	$(_SINGLE)$(SUBMAKE) -r package/index
-	$(_SINGLE)$(SUBMAKE) -r json_overview_image_info
-	$(_SINGLE)$(SUBMAKE) -r checksum
+	$(_SINGLE)$(SUBMAKE) -r package/index json_overview_image_info checksum
 ifneq ($(CONFIG_CCACHE),)
 	$(STAGING_DIR_HOST)/bin/ccache -s
 endif

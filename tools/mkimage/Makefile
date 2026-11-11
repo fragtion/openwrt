@@ -7,38 +7,39 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=mkimage
-PKG_VERSION:=2021.10
+PKG_VERSION:=2026.10
 
 PKG_SOURCE:=u-boot-$(PKG_VERSION).tar.bz2
 PKG_SOURCE_URL:= \
-	https://mirror.cyberbits.eu/u-boot \
-	https://ftp.denx.de/pub/u-boot \
-	ftp://ftp.denx.de/pub/u-boot
-PKG_HASH:=cde723e19262e646f2670d25e5ec4b1b368490de950d4e26275a988c36df0bd4
+	https://git.u-boot-project.org/u-boot/u-boot/-/releases/v$(PKG_VERSION)/downloads
+PKG_HASH:=3f856da3cbbc93af51ff95fde18588a348b4a26723b01d9841e999d988481015
 
-HOST_BUILD_DIR:=$(BUILD_DIR_HOST)/u-boot-$(PKG_VERSION)
+HOST_BUILD_DIR:=$(BUILD_DIR_HOST)/u-boot-v$(PKG_VERSION)
+HOST_BUILD_PARALLEL:=1
 
 include $(INCLUDE_DIR)/host-build.mk
 
-define Host/Prepare
-	$(Host/Prepare/Default)
-	mkdir -p $(HOST_BUILD_DIR)/include/config
-	touch $(HOST_BUILD_DIR)/include/config/auto.conf
-	mkdir -p $(HOST_BUILD_DIR)/include/generated/
-	touch $(HOST_BUILD_DIR)/include/generated/autoconf.h
-endef
-
-define Host/Compile
+define Host/Configure
 	$(MAKE) -C $(HOST_BUILD_DIR) \
 		HOSTCFLAGS="$(HOST_CFLAGS)" \
 		HOSTLDFLAGS="$(HOST_LDFLAGS)" \
 		PKG_CONFIG_EXTRAARGS="--static" \
-		no-dot-config-targets=tools-only \
-		CONFIG_MKIMAGE_DTC_PATH=dtc \
-		CONFIG_FIT=y \
-		CONFIG_FIT_SIGNATURE=y \
-		CONFIG_FIT_SIGNATURE_MAX_SIZE=0x10000000 \
-		CONFIG_TOOLS_LIBCRYPTO=y \
+		V=$(if $(findstring c,$(OPENWRT_VERBOSE)),1) \
+		tools-only_defconfig
+
+	$(HOST_BUILD_DIR)/scripts/config \
+		--file $(HOST_BUILD_DIR)/.config \
+		--disable TOOLS_KWBIMAGE \
+		--disable TOOLS_LIBCRYPTO \
+		--disable TOOLS_MKEFICAPSULE
+endef
+
+define Host/Compile
+	+$(MAKE) $(HOST_JOBS) -C $(HOST_BUILD_DIR) \
+		HOSTCFLAGS="$(HOST_CFLAGS)" \
+		HOSTLDFLAGS="$(HOST_LDFLAGS)" \
+		PKG_CONFIG_EXTRAARGS="--static" \
+		V=$(if $(findstring c,$(OPENWRT_VERBOSE)),1) \
 		tools-only
 endef
 
